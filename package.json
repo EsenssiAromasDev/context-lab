@@ -1,0 +1,16 @@
+{
+  "name": "claudeos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Persistent project state, evidence and ship gating for coding agents (codename ClaudeOS).",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}
