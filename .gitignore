@@ -1,2 +1,4 @@
 node_modules/
 .claudeos/
+# Laid by the engine on every plugin load, for this installed build.
+.claude-plugin/types/

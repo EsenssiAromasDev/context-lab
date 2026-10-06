@@ -1,0 +1,8 @@
+{
+  "name": "claudeos",
+  "version": "0.1.0",
+  "description": "Persistent project state, evidence and ship gating for coding agents (Claude Code adapter).",
+  "author": {
+    "name": "jairogelpi"
+  }
+}
