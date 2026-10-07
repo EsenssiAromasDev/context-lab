@@ -220,6 +220,7 @@ export function renderExperiment(s: ExperimentSummary): string {
     col("Tokens leídos por intento", tok(s.baseline.inputTokensPerTrial), withDiff(tok(s.candidate.inputTokensPerTrial), s.inputDiffPercent)),
     col("Coste por intento", usd(s.baseline.costPerTrial), withDiff(usd(s.candidate.costPerTrial), s.costDiffPercent)),
     col("Tiempo (mediana)", dur(s.baseline.medianDurationMs), dur(s.candidate.medianDurationMs)),
+    ...moneyLine(s),
     col("Intentos con errores", String(s.baseline.errors), String(s.candidate.errors)),
     "",
     s.qualityDiffPp === undefined
@@ -249,4 +250,13 @@ function fmtPct(x: number): string {
 
 function dur(ms: number | undefined): string {
   return ms === undefined ? "?" : `${(ms / 1000).toFixed(1)} s`
+}
+
+/** The measured cost difference, scaled to 100 tasks: money, not tokens (measured, never estimated). */
+function moneyLine(s: ExperimentSummary): string[] {
+  const a = s.baseline.costPerTrial
+  const b = s.candidate.costPerTrial
+  if (a === undefined || b === undefined) return []
+  const diff = (a - b) * 100
+  return [diff >= 0 ? `Ahorro medido: $${diff.toFixed(2)} por cada 100 tareas` : `Sobrecoste medido: $${(-diff).toFixed(2)} por cada 100 tareas`]
 }

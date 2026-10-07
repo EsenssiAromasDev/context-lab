@@ -24,6 +24,10 @@ export interface EvalHost {
   list(path: string): Promise<readonly FileEntry[]>
   now(): Promise<number>
   isWindows: boolean
+  /** Makes `path` a directory link to `target` (a junction on Windows). */
+  link(target: string, path: string): Promise<void>
+  /** Removes a link made by `link`, never what it points to. */
+  unlink(path: string): Promise<void>
 }
 
 /** Joins with "/", normalizing backslashes; `..` and `.` segments resolved. */

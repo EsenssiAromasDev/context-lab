@@ -8,7 +8,12 @@ import {
   gitInfo,
   hideContextLab,
   installGraders,
+  instructionsAt,
+  linkDependencies,
   projectInstructionTokens,
+  syncInstructions,
+  unlinkAll,
+  writeGraderFiles,
   removeWorktree,
   workingTreeChanges,
   worktreeBase,
@@ -110,6 +115,8 @@ export interface Prepared {
   tasks: Task[]
   variant: Variant
   claude: { argv: string[]; version: string }
+  /** Today's instruction files, for tasks that start at an older commit. */
+  headInstructions: Map<string, string>
 }
 
 /** Everything checked before the first trial; any failure refuses the run. */
@@ -128,7 +135,8 @@ export async function prepare(host: EvalHost, root: string, variantName: string)
   if ("error" in variant) return variant
   const claude = await resolveClaude(host, config.claude)
   if ("error" in claude) return claude
-  return { info, config, tasks, variant, claude }
+  const headInstructions = tasks.some((t) => t.baseSha !== undefined) ? await instructionsAt(host, info, info.sha) : new Map<string, string>()
+  return { info, config, tasks, variant, claude, headInstructions }
 }
 
 export interface Progress {
@@ -203,12 +211,18 @@ async function runTrial(host: EvalHost, root: string, p: Prepared, slot: Slot, d
     startedAt,
   }
   const wtRoot = p.info.sub ? joinPath(dir, p.info.sub) : dir
+  const base = slot.task.baseSha ?? p.info.sha
+  r.gitSha = base
   let created = false
+  let links: string[] = []
   try {
-    await addWorktree(host, p.info, dir)
+    await addWorktree(host, p.info, dir, base)
     created = true
     await hideContextLab(host, wtRoot)
+    // A task from history starts at its old commit, with today's instructions.
+    if (base !== p.info.sha) await syncInstructions(host, p.info, wtRoot, p.headInstructions)
     if (slot.arm === "variant") await applyVariant(host, p.variant, wtRoot)
+    links = await linkDependencies(host, root, wtRoot, p.config.links)
     r.contextTokens = await projectInstructionTokens(host, wtRoot)
 
     const claudeTimeout = Math.min(slot.task.timeoutSeconds, MAX_PROCESS_SECONDS) * 1000
@@ -228,6 +242,7 @@ async function runTrial(host: EvalHost, root: string, p: Prepared, slot: Slot, d
 
     // The repository decides, whatever Claude reported: grade what is on disk.
     await installGraders(host, root, wtRoot)
+    if (slot.task.graderFiles && slot.task.graderFrom) await writeGraderFiles(host, p.info, wtRoot, slot.task.graderFiles, slot.task.graderFrom)
     try {
       const g = await host.run(slot.task.graderArgv, { cwd: wtRoot, timeoutMs: p.config.graderTimeoutSeconds * 1000 })
       r.graderExitCode = g.exitCode
@@ -238,7 +253,10 @@ async function runTrial(host: EvalHost, root: string, p: Prepared, slot: Slot, d
   } catch (err) {
     r.error = `trial setup failed: ${err instanceof Error ? err.message : String(err)}`
   } finally {
-    if (created) await removeWorktree(host, p.info, dir).catch(() => undefined)
+    // Links go first: deleting a tree could otherwise follow them into the real folders.
+    const unlinked = await unlinkAll(host, links)
+    if (!unlinked) r.error = [r.error, `could not remove dependency links; worktree kept at ${dir}`].filter(Boolean).join("; ")
+    else if (created) await removeWorktree(host, p.info, dir).catch(() => undefined)
   }
   return r
 }

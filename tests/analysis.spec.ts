@@ -116,7 +116,7 @@ test("inventories: bullet lists that mostly name paths", () => {
 })
 
 test("scoring tries the tree as written and without the project's own folder name", () => {
-  const listing = { nodeId: "n", file: "f", kind: "tree" as const, line: 1, estimatedTokens: 10, entries: ["proj", "proj/src", "proj/src/a.ts", "proj/docs", "proj/docs/b.md", "proj/x"] }
+  const listing = { nodeId: "n", file: "f", kind: "tree" as const, line: 1, endLine: 8, estimatedTokens: 10, entries: ["proj", "proj/src", "proj/src/a.ts", "proj/docs", "proj/docs/b.md", "proj/x"] }
   const on = new Set(["/r/src", "/r/src/a.ts", "/r/docs", "/r/docs/b.md"])
   const scored = scoreListing(listing, (p) => on.has(p), "/r")
   assert.equal(scored.existing, 4)

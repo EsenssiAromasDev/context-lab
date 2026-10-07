@@ -60,8 +60,8 @@ export function worktreeBase(info: GitInfo, configured?: string): string {
   return configured ?? joinPath(dirname(info.top), ".context-lab-worktrees", basename(info.top))
 }
 
-export async function addWorktree(host: EvalHost, info: GitInfo, dir: string): Promise<void> {
-  const r = await git(host, info.top, ["worktree", "add", "--detach", "--quiet", dir, info.sha])
+export async function addWorktree(host: EvalHost, info: GitInfo, dir: string, sha = info.sha): Promise<void> {
+  const r = await git(host, info.top, ["worktree", "add", "--detach", "--quiet", dir, sha])
   if (r.exitCode !== 0) throw new Error(`git worktree add failed: ${r.stderr.trim()}`)
 }
 
@@ -91,9 +91,10 @@ export async function installGraders(host: EvalHost, mainRoot: string, wtRoot: s
 }
 
 /**
- * Local estimate (~chars/4) of the project's always-on instruction files in a
- * tree: CLAUDE.md, .claude/CLAUDE.md, .claude/rules/**.md. The same yardstick
- * for both arms; not what a session would load in total.
+ * Local estimate (~chars/4) of the project's ALWAYS-ON instruction files in a
+ * tree: CLAUDE.md, .claude/CLAUDE.md, and .claude/rules/**.md without a
+ * `paths:` frontmatter (a path-scoped rule loads only when Claude touches a
+ * matching file). The same yardstick for both arms.
  */
 export async function projectInstructionTokens(host: EvalHost, wtRoot: string): Promise<number> {
   const candidates = ["CLAUDE.md", ".claude/CLAUDE.md"]
@@ -102,7 +103,95 @@ export async function projectInstructionTokens(host: EvalHost, wtRoot: string): 
   let total = 0
   for (const rel of candidates) {
     const p = joinPath(wtRoot, rel)
-    if (await host.exists(p)) total += measure(await host.read(p)).estimatedTokens
+    if (!(await host.exists(p))) continue
+    const text = await host.read(p)
+    if (rel.startsWith(".claude/rules/") && isPathScoped(text)) continue
+    total += measure(text).estimatedTokens
   }
   return total
+}
+
+/** True when a rule file's frontmatter has a `paths` field: it loads only for matching files. */
+export function isPathScoped(text: string): boolean {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)
+  return m !== null && /^paths\s*:/m.test(m[1]!)
+}
+
+/** Instruction files Claude Code loads from a repository (relative paths). */
+export function isInstructionPath(p: string): boolean {
+  const name = p.slice(p.lastIndexOf("/") + 1)
+  if (name === "CLAUDE.md" || name === "CLAUDE.local.md" || name === "AGENTS.md") return !p.startsWith(".context-lab/")
+  return /^\.claude\/rules\/.+\.md$/.test(p)
+}
+
+async function trackedFiles(host: EvalHost, cwd: string, rev: string): Promise<string[]> {
+  const r = await git(host, cwd, ["ls-tree", "-r", "--name-only", "-z", rev])
+  if (r.exitCode !== 0) throw new Error(`git ls-tree ${rev} failed: ${r.stderr.trim()}`)
+  return r.stdout.split("\0").filter(Boolean)
+}
+
+/** A file's content at a commit, read from the main repository. */
+export async function showAt(host: EvalHost, info: GitInfo, rev: string, path: string): Promise<string> {
+  const r = await git(host, info.top, ["show", `${rev}:${path}`])
+  if (r.exitCode !== 0) throw new Error(`git show ${rev}:${path} failed: ${r.stderr.trim()}`)
+  return r.stdout
+}
+
+/** The project's instruction files at a commit: path → text. */
+export async function instructionsAt(host: EvalHost, info: GitInfo, rev: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  for (const p of (await trackedFiles(host, info.top, rev)).filter(isInstructionPath)) out.set(p, await showAt(host, info, rev, p))
+  return out
+}
+
+/**
+ * A trial that starts at an older commit still runs with TODAY's instructions:
+ * the experiment compares instruction sets, not history. Writes HEAD's
+ * instruction files into the tree and removes ones HEAD no longer has.
+ */
+export async function syncInstructions(host: EvalHost, info: GitInfo, wtRoot: string, headFiles: ReadonlyMap<string, string>): Promise<void> {
+  const present = (await trackedFiles(host, wtRoot, "HEAD")).filter(isInstructionPath)
+  const stale = present.filter((p) => !headFiles.has(p))
+  if (stale.length) await git(host, wtRoot, ["rm", "-q", "--ignore-unmatch", "--", ...stale])
+  for (const [p, text] of headFiles) await host.write(joinPath(wtRoot, p), text)
+  // Staged, so a variant's `delete` (git rm) can remove them like any tracked file.
+  if (headFiles.size) {
+    const r = await git(host, wtRoot, ["add", "-f", "--", ...headFiles.keys()])
+    if (r.exitCode !== 0) throw new Error(`git add of today's instructions failed: ${r.stderr.trim()}`)
+  }
+}
+
+/** Restores a mined task's reference tests into the tree, just before grading. */
+export async function writeGraderFiles(host: EvalHost, info: GitInfo, wtRoot: string, files: readonly string[], from: string): Promise<void> {
+  for (const f of files) await host.write(joinPath(wtRoot, f), await showAt(host, info, from, f))
+}
+
+/**
+ * Links the main checkout's dependency folders (node_modules, .venv) into a
+ * trial's tree so its tests can run. Returns the links made; `unlinkAll` must
+ * remove them before the worktree is deleted, or deleting could follow them.
+ */
+export async function linkDependencies(host: EvalHost, mainRoot: string, wtRoot: string, names: readonly string[]): Promise<string[]> {
+  const made: string[] = []
+  for (const name of names) {
+    const target = joinPath(mainRoot, name)
+    const link = joinPath(wtRoot, name)
+    if (!(await host.exists(target)) || (await host.exists(link))) continue
+    await host.link(target, link)
+    made.push(link)
+  }
+  return made
+}
+
+export async function unlinkAll(host: EvalHost, links: readonly string[]): Promise<boolean> {
+  let ok = true
+  for (const l of links) {
+    try {
+      await host.unlink(l)
+      if (await host.exists(l)) ok = false
+    } catch {
+      ok = false
+    }
+  }
+  return ok
 }

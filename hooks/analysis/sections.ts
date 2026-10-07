@@ -7,11 +7,13 @@ export interface Section {
   nodeId: string
   /** How the file reads to the person (./CLAUDE.md, ~/.claude/CLAUDE.md). */
   file: string
-  /** Heading text, "(preamble)" for text before the first heading. */
+  /** Heading text, "(inicio del archivo)" for text before the first heading. */
   heading: string
   level: number
   /** 1-based line of the heading (or 1 for the preamble) in the analyzed text. */
   line: number
+  /** 1-based last line of the section (its own body; a sub-heading starts a new section). */
+  endLine: number
   /** The section's body, heading line excluded. */
   body: string
   estimatedTokens: number
@@ -38,7 +40,8 @@ export function splitSections(src: SourceText): Section[] {
   const flush = () => {
     const text = body.join("\n").trim()
     if (text.length > 0 || level > 0) {
-      out.push({ nodeId: src.nodeId, file: src.file, heading, level, line, body: text, estimatedTokens: measure(text).estimatedTokens })
+      const endLine = level > 0 ? line + body.length : body.length
+      out.push({ nodeId: src.nodeId, file: src.file, heading, level, line, endLine, body: text, estimatedTokens: measure(text).estimatedTokens })
     }
   }
 

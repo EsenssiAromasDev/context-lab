@@ -54,7 +54,7 @@ export async function loadVariant(host: EvalHost, root: string, name: string): P
 export async function applyVariant(host: EvalHost, v: Variant, wtRoot: string): Promise<void> {
   for (const rel of v.files) await host.write(joinPath(wtRoot, rel), await host.read(joinPath(v.dir, "files", rel)))
   if (v.delete.length) {
-    const r = await host.run(["git", "rm", "-q", "--ignore-unmatch", "--", ...v.delete], { cwd: wtRoot, timeoutMs: 60_000 })
+    const r = await host.run(["git", "rm", "-q", "-f", "--ignore-unmatch", "--", ...v.delete], { cwd: wtRoot, timeoutMs: 60_000 })
     if (r.exitCode !== 0) throw new Error(`variant delete failed: ${r.stderr.trim()}`)
   }
 }

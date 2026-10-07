@@ -18,6 +18,11 @@ export interface Task {
   timeoutSeconds: number
   /** The file it came from, relative to the tasks folder. */
   file: string
+  /** The commit a trial starts from; absent, the run's HEAD. Mined tasks start before their commit. */
+  baseSha?: string
+  /** Files restored from `graderFrom` just before grading (a mined commit's tests). */
+  graderFiles?: string[]
+  graderFrom?: string
 }
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
@@ -180,5 +185,20 @@ export function parseTask(text: string, file: string): Parsed<Task> {
   const timeoutSeconds = typeof rawTimeout === "number" ? rawTimeout : Number(rawTimeout)
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) return { ok: false, error: `${file}: timeout_seconds must be a positive number` }
 
-  return { ok: true, value: { id, prompt, graderArgv: argv, timeoutSeconds, file } }
+  const task: Task = { id, prompt, graderArgv: argv, timeoutSeconds, file }
+  const sha = (v: unknown) => (typeof v === "string" && /^[0-9a-f]{7,40}$/i.test(v.trim()) ? v.trim() : undefined)
+  if (d.base_sha !== undefined) {
+    const base = sha(d.base_sha)
+    if (!base) return { ok: false, error: `${file}: base_sha must be a commit hash` }
+    task.baseSha = base
+  }
+  if (grader && grader.files !== undefined) {
+    const files = Array.isArray(grader.files) ? grader.files.filter((f): f is string => typeof f === "string" && f.length > 0) : []
+    const from = sha(grader.from_sha)
+    if (files.length === 0 || !from) return { ok: false, error: `${file}: grader.files needs a list of paths and grader.from_sha` }
+    if (files.some((f) => f.startsWith("/") || f.split("/").includes(".."))) return { ok: false, error: `${file}: grader.files must be relative paths` }
+    task.graderFiles = files
+    task.graderFrom = from
+  }
+  return { ok: true, value: task }
 }

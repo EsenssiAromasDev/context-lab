@@ -22,6 +22,13 @@ export interface EvalConfig {
   /** Where trial worktrees go; absent, `<repo parent>/.context-lab-worktrees/<repo name>`. */
   worktreeDir?: string
   graderTimeoutSeconds: number
+  /** Dependency folders of the main checkout linked into each trial (when they exist). */
+  links: string[]
+  /** How many commits `mine` reads, and how many tasks it keeps at most. */
+  mineScan: number
+  mineMax: number
+  /** Test command for mined tasks, `{files}` replaced by the commit's test files; absent, detected. */
+  testCommand?: string[]
 }
 
 export const DEFAULT_EVAL: EvalConfig = {
@@ -33,6 +40,9 @@ export const DEFAULT_EVAL: EvalConfig = {
   seed: 1,
   claudeArgs: ["--permission-mode", "acceptEdits"],
   graderTimeoutSeconds: 600,
+  links: ["node_modules", ".venv", "venv"],
+  mineScan: 300,
+  mineMax: 20,
 }
 
 /** `$.process.run` allows ten minutes per call; longer timeouts are clamped to it. */
@@ -46,10 +56,12 @@ const NUMBERS: Record<string, [number, number]> = {
   bootstrapIterations: [100, 100_000],
   seed: [0, 2 ** 31],
   graderTimeoutSeconds: [1, MAX_PROCESS_SECONDS],
+  mineScan: [1, 5000],
+  mineMax: [1, 500],
 }
 
 export function parseEvalConfig(text: string | undefined): EvalConfig {
-  const config: EvalConfig = { ...DEFAULT_EVAL, claudeArgs: [...DEFAULT_EVAL.claudeArgs] }
+  const config: EvalConfig = { ...DEFAULT_EVAL, claudeArgs: [...DEFAULT_EVAL.claudeArgs], links: [...DEFAULT_EVAL.links] }
   if (text === undefined) return config
   let raw: unknown
   try {
@@ -67,6 +79,8 @@ export function parseEvalConfig(text: string | undefined): EvalConfig {
   if (isArgv(src.claude)) config.claude = src.claude
   if (isArgv(src.claudeArgs) || (Array.isArray(src.claudeArgs) && src.claudeArgs.length === 0)) config.claudeArgs = src.claudeArgs as string[]
   if (typeof src.worktreeDir === "string" && src.worktreeDir.trim()) config.worktreeDir = src.worktreeDir.trim()
+  if (Array.isArray(src.links) && src.links.every((l) => typeof l === "string" && /^[\w.-]+$/.test(l))) config.links = src.links as string[]
+  if (isArgv(src.testCommand) && src.testCommand.includes("{files}")) config.testCommand = src.testCommand
   return config
 }
 

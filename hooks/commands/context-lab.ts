@@ -23,7 +23,20 @@ import type { SessionUsageSnapshot } from "../metrics/usage.ts"
 
 export const MIN_VERSION = "2.1.287"
 
-export type View = "overview" | "tree" | "issues" | "experiments" | "init" | "report" | "eval" | "doctor" | "help"
+export type View =
+  | "overview"
+  | "tree"
+  | "issues"
+  | "experiments"
+  | "init"
+  | "report"
+  | "eval"
+  | "optimize"
+  | "mine"
+  | "propose"
+  | "apply"
+  | "doctor"
+  | "help"
 
 export interface Parsed {
   view: View
@@ -49,6 +62,14 @@ const WORDS: Record<string, View> = {
   informe: "report",
   eval: "eval",
   probar: "eval",
+  optimize: "optimize",
+  optimizar: "optimize",
+  mine: "mine",
+  minar: "mine",
+  propose: "propose",
+  proponer: "propose",
+  apply: "apply",
+  aplicar: "apply",
   doctor: "doctor",
   help: "help",
   ayuda: "help",
@@ -170,7 +191,7 @@ export function verdict(input: ViewInput): string[] {
     else if (share < 10) out.push(`• Tus instrucciones ocupan el ${pct}% del contexto. Recortarlas ahorraría poco; mira si hay texto repetido.`)
     else {
       out.push(`⚠ Tus instrucciones ocupan el ${pct}% del contexto antes de que escribas nada.`)
-      out.push("  Vale la pena resumirlas; luego comprueba con /context-lab probar que Claude sigue trabajando igual de bien.")
+      out.push("  Pruébalo: /context-lab optimizar propone una versión más corta y comprueba que Claude no empeora.")
     }
   }
   const listing = usage?.skillListing
@@ -185,6 +206,7 @@ export function verdict(input: ViewInput): string[] {
     const c = countBySeverity(issues)
     const parts = (["high", "medium", "low", "info"] as const).filter((s) => c[s]).map((s) => severityCount(s, c[s]))
     out.push(`⚠ ${issues.length} problema${issues.length === 1 ? "" : "s"} (${parts.join(", ")}): tecla 3 para ver cuáles y qué hacer.`)
+    out.push("  O deja que /context-lab optimizar arregle lo seguro y lo compruebe con tareas reales.")
   }
   if (out.length === 0) out.push("Aún no hay nada que valorar: escribe algo y vuelve.")
   return out
@@ -353,11 +375,17 @@ export function renderHelp(p: Parsed): string {
   if (p.unknown) lines.push(`No conozco "${p.unknown}".`, "")
   lines.push(
     "/context-lab                   abre el panel: qué lee Claude y si sobra algo",
+    "/context-lab optimizar         TODO EN UNO: saca tareas de tu historial de git, propone una versión",
+    "                               más corta de tus instrucciones y comprueba que Claude no empeora",
+    "                               (optimizar resumir: además resume con IA las secciones grandes)",
     "/context-lab archivos          qué archivos recibe Claude, uno a uno",
     "/context-lab problemas         texto repetido, rutas rotas, secciones grandes… y qué hacer",
     "/context-lab experimentos      resultados de las pruebas con instrucciones cambiadas",
     "/context-lab iniciar           crea .context-lab/ para hacer experimentos",
     "/context-lab probar <nombre>   compara tus instrucciones con la versión <nombre> (probar stop: detener)",
+    "/context-lab minar             saca tareas de prueba de tus commits (sin escribir ninguna)",
+    "/context-lab proponer          escribe una versión recortada de tus instrucciones (no toca nada)",
+    "/context-lab aplicar <nombre>  enseña qué cambiaría; con «confirmar» al final, lo aplica",
     "/context-lab informe           guarda un informe en .context-lab/reports/",
     "/context-lab doctor            comprueba qué puede ver Context Lab en esta instalación",
     "",

@@ -23,10 +23,17 @@ import { canonicalPath } from "./graph/graph-builder.ts"
 import { displayPath } from "./graph/graph-selectors.ts"
 import { emptyGraph, restoreGraph, type ContextGraph } from "./graph/graph.ts"
 import { renderReport, reportFileName } from "./commands/report.ts"
-import type { EvalHost } from "./eval/host.ts"
+import { resolveClaude, type EvalHost } from "./eval/host.ts"
 import { initFiles, renderInit } from "./eval/init.ts"
 import { renderExperiment, verdictWord } from "./eval/report.ts"
 import { latestSummary, prepare, runExperiment, type Prepared } from "./eval/runner.ts"
+import { applyToProject, planApply, renderApplyPlan } from "./eval/apply.ts"
+import { parseEvalConfig } from "./eval/config.ts"
+import { mineTasks } from "./eval/mine.ts"
+import { optimize, renderOptimize } from "./eval/optimize.ts"
+import { propose, renderProposal } from "./eval/propose.ts"
+import { loadVariant } from "./eval/variant.ts"
+import { gitInfo } from "./eval/worktree.ts"
 import {
   applyEngineTokens,
   deliveredTexts,
@@ -180,6 +187,10 @@ export const register: Register = (on) => {
       if (parsed.view === "init") return { text: await initProject($) }
       if (parsed.view === "report") return { text: await writeReport($) }
       if (parsed.view === "eval") return { text: await startEval($, parsed.arg) }
+      if (parsed.view === "optimize") return { text: await startOptimize($, parsed.arg) }
+      if (parsed.view === "mine") return { text: await startMine($) }
+      if (parsed.view === "propose") return { text: await proposeNow($, parsed.arg) }
+      if (parsed.view === "apply") return { text: await applyNow($, parsed.arg) }
       return { text: renderHelp(parsed) }
     } catch (err) {
       return { text: `Context Lab: algo falló (${message(err)})` }
@@ -474,6 +485,18 @@ function evalHost($: EngineInterface, root: string): EvalHost {
     exists: (path) => $.fs.exists(path),
     list: async (path) => (await $.fs.list(path)).map((e) => ({ name: e.name, kind: e.kind })),
     now: () => $.clock.now(),
+    link: async (target, path) => {
+      const win = (p: string) => p.replace(/\//g, "\\")
+      const argv = /^[a-z]:/i.test(root) ? ["cmd", "/c", "mklink", "/J", win(path), win(target)] : ["ln", "-s", target, path]
+      const r = await $.process.run(argv, { timeoutMs: 30_000 })
+      if (r.exitCode !== 0) throw new Error(`link failed: ${r.stderr.trim() || r.stdout.trim()}`)
+    },
+    unlink: async (path) => {
+      // `rmdir` on a junction (no /s) and `rm` on a symlink remove the link, never its target.
+      const argv = /^[a-z]:/i.test(root) ? ["cmd", "/c", "rmdir", path.replace(/\//g, "\\")] : ["rm", path]
+      const r = await $.process.run(argv, { timeoutMs: 30_000 })
+      if (r.exitCode !== 0) throw new Error(`unlink failed: ${r.stderr.trim()}`)
+    },
   }
 }
 
@@ -606,6 +629,122 @@ async function runEval($: EngineInterface, root: string, prepared: Prepared, tot
     stopRequested = false
     $.ui.status(undefined)
   }
+}
+
+// ── Optimize: mine, propose, apply ──────────────────────────────────────────
+
+/**
+ * Runs a long job (optimize, mine) once at a time: in the background where a
+ * surface draws (status line + Experiments view), to the end when headless.
+ */
+async function runJob($: EngineInterface, label: string, work: (say: (line: string) => Promise<void>) => Promise<string>): Promise<string> {
+  if (evalRunning) return "Ya hay un trabajo en marcha: /context-lab probar stop para detenerlo."
+  evalRunning = true
+  stopRequested = false
+  const say = async (line: string) => {
+    $.ui.status(`Context Lab: ${line}`.slice(0, 120))
+    await update($, experimentAtom, () => ({ status: "running" as const, runId: "", variant: label, done: 0, total: 0, lines: [line] }))
+  }
+  const job = (async () => {
+    try {
+      const text = await work(say)
+      await update($, experimentAtom, () => ({ status: "done" as const, runId: label, variant: label, done: 0, total: 0, lines: text.split("\n") }))
+      $.ui.toast(`Context Lab: ${label} terminado`)
+      return text
+    } catch (err) {
+      const msg = `${label} falló: ${message(err)}`
+      await update($, experimentAtom, () => ({ status: "failed" as const, runId: "", variant: label, done: 0, total: 0, lines: [msg] }))
+      return msg
+    } finally {
+      evalRunning = false
+      stopRequested = false
+      $.ui.status(undefined)
+    }
+  })()
+  if ((await $.session.surfaces()).length === 0) return await job
+  void job
+  return `${label} en marcha. El progreso sale en la barra de estado y en la tecla 4 del panel; el resultado aparecerá ahí.`
+}
+
+/** /context-lab optimizar [resumir]: mine → propose → test, in one go. */
+async function startOptimize($: EngineInterface, arg: string | undefined): Promise<string> {
+  const summarize = arg !== undefined && /^(resumir|summarize)$/i.test(arg.trim())
+  const root = canonicalPath(await $.session.root())
+  return runJob($, "optimizar", async (say) => {
+    const outcome = await optimize(evalHost($, root), root, {
+      summarize,
+      shouldStop: () => stopRequested,
+      onStep: async (s) => {
+        if (s.step === "mine") await say(`buscando tareas en tu historial: ${s.progress.kept} encontradas, ${s.progress.scanned} commits revisados${s.progress.current ? ` · probando «${s.progress.current.slice(0, 50)}»` : ""}`)
+        else if (s.step === "propose") await say("preparando la versión recortada…")
+        else if (s.step === "eval") await say(`comprobando con tareas reales: ${s.progress.done} de ${s.progress.total}${s.progress.current ? ` · ${s.progress.current}` : ""}`)
+      },
+    })
+    return renderOptimize(outcome)
+  })
+}
+
+/** /context-lab minar: tasks from the history, calibrated, written to .context-lab/evals/tasks/. */
+async function startMine($: EngineInterface): Promise<string> {
+  const root = canonicalPath(await $.session.root())
+  const host = evalHost($, root)
+  const info = await gitInfo(host, root)
+  if ("error" in info) return info.error
+  const configPath = join(root, ".context-lab/config.json")
+  const config = parseEvalConfig((await $.fs.exists(configPath)) ? await $.fs.read(configPath) : undefined)
+  return runJob($, "minar", async (say) => {
+    const o = await mineTasks(host, root, info, config, (p) => say(`${p.kept} tareas encontradas · ${p.scanned} commits revisados`))
+    const why = Object.entries(o.skipped).sort((a, b) => b[1] - a[1]).slice(0, 4)
+    return [
+      `TAREAS SACADAS DE TU HISTORIAL: ${o.kept.length}`,
+      "",
+      ...o.kept.map((k) => `  ${k.id}  ${k.subject.slice(0, 70)}`),
+      "",
+      `Commits revisados: ${o.scanned} · candidatos comprobados: ${o.candidates}`,
+      ...(why.length ? [`Descartados sobre todo por: ${why.map(([k, n]) => `${k} (${n})`).join(", ")}`] : []),
+      "",
+      "Cada tarea parte del commit anterior y se califica con los tests que escribió ese commit:",
+      "solo se guardan las que fallan antes del cambio y pasan después.",
+    ].join("\n")
+  })
+}
+
+/** /context-lab proponer [resumir]: writes a slimmer variant, touches nothing of the person's. */
+async function proposeNow($: EngineInterface, arg: string | undefined): Promise<string> {
+  const root = canonicalPath(await $.session.root())
+  const host = evalHost($, root)
+  const info = await gitInfo(host, root)
+  if ("error" in info) return info.error
+  const configPath = join(root, ".context-lab/config.json")
+  const text = (await $.fs.exists(configPath)) ? await $.fs.read(configPath) : undefined
+  const summarize = arg !== undefined && /^(resumir|summarize)$/i.test(arg.trim())
+  const config = parseEvalConfig(text)
+  let claude: string[] | undefined
+  if (summarize) {
+    const c = await resolveClaude(host, config.claude)
+    if ("error" in c) return c.error
+    claude = c.argv
+  }
+  const p = await propose(host, root, info, config, { analysis: parseAnalysisConfig(text), ...(summarize ? { summarize } : {}), ...(claude ? { claude } : {}) })
+  if (!p) return "No hay nada que recortar con seguridad (ni texto repetido, ni listados innecesarios, ni secciones de una sola carpeta)."
+  return `${renderProposal(p)}\n\nSiguiente: /context-lab probar ${p.name}`
+}
+
+/** /context-lab aplicar <nombre> [confirmar]: shows the change; applies it only when confirmed. */
+async function applyNow($: EngineInterface, arg: string | undefined): Promise<string> {
+  const [name, confirm] = (arg ?? "").trim().split(/\s+/)
+  if (!name) return "Uso: /context-lab aplicar <nombre>   (y luego, para hacerlo de verdad: /context-lab aplicar <nombre> confirmar)"
+  const root = canonicalPath(await $.session.root())
+  const host = evalHost($, root)
+  const info = await gitInfo(host, root)
+  if ("error" in info) return info.error
+  const v = await loadVariant(host, root, name)
+  if ("error" in v) return v.error
+  const latest = await latestSummary(host, root).catch(() => undefined)
+  const plan = await planApply(host, root, info, v, latest?.variant === name ? latest : undefined)
+  if (!/^(confirmar|confirm)$/i.test(confirm ?? "") || plan.blocked.length) return renderApplyPlan(plan)
+  const touched = await applyToProject(host, root, v)
+  return `Aplicado. Archivos cambiados: ${touched.join(", ")}.\nRevísalo con git diff; para deshacerlo: git checkout -- ${touched.join(" ")}`
 }
 
 /** Brings the figures up to date: usage, the analyzers, and with `scan` the repository listing. */

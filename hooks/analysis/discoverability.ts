@@ -12,6 +12,8 @@ export interface ListingBlock {
   kind: "tree" | "inventory"
   /** 1-based line where the block starts in the analyzed text. */
   line: number
+  /** 1-based last line of the block (a tree's closing fence, an inventory's last item). */
+  endLine: number
   /** Repository-relative entries, no trailing slash. */
   entries: string[]
   estimatedTokens: number
@@ -48,7 +50,7 @@ export function findListings(src: SourceText): ListingBlock[] {
       while (i < lines.length && !(FENCE.exec(lines[i]!)?.[1] === f[1])) body.push(lines[i++]!)
       i++ // closing fence
       const entries = parseTree(body)
-      if (entries) out.push(block(src, "tree", start + 1, entries, lines.slice(start, i).join("\n")))
+      if (entries) out.push(block(src, "tree", start + 1, Math.min(i, lines.length), entries, lines.slice(start, i).join("\n")))
       continue
     }
     if (BULLET.test(lines[i]!)) {
@@ -61,7 +63,7 @@ export function findListings(src: SourceText): ListingBlock[] {
         .map((p) => p.replace(/^\.\//, "").replace(/\/$/, ""))
       // An inventory: most items of the list name a path.
       if (entries.length >= MIN_ENTRIES && entries.length >= items.length * 0.8) {
-        out.push(block(src, "inventory", start + 1, entries, lines.slice(start, i).join("\n")))
+        out.push(block(src, "inventory", start + 1, i, entries, lines.slice(start, i).join("\n")))
       }
       continue
     }
@@ -70,8 +72,8 @@ export function findListings(src: SourceText): ListingBlock[] {
   return out
 }
 
-function block(src: SourceText, kind: ListingBlock["kind"], line: number, entries: string[], text: string): ListingBlock {
-  return { nodeId: src.nodeId, file: src.file, kind, line, entries: [...new Set(entries)], estimatedTokens: measure(text).estimatedTokens }
+function block(src: SourceText, kind: ListingBlock["kind"], line: number, endLine: number, entries: string[], text: string): ListingBlock {
+  return { nodeId: src.nodeId, file: src.file, kind, line, endLine, entries: [...new Set(entries)], estimatedTokens: measure(text).estimatedTokens }
 }
 
 /**
