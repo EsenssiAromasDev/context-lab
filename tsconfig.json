@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["hooks/graph", "hooks/metrics", "hooks/observers", "hooks/commands", "tests/**/*.spec.ts"]
+  "include": ["hooks/graph", "hooks/metrics", "hooks/observers", "hooks/commands", "hooks/analysis", "hooks/eval", "scripts", "tests/**/*.spec.ts"]
 }

@@ -16,7 +16,9 @@ The full V1 specification is [SPEC.md](SPEC.md). Design decisions: [DECISIONS.md
 | 3 Usage, skills (`skill.prompt`), subagents (`agent.spawn`) | done | verified live on 2.1.291 |
 | 4 Analyzers (duplicates, lexical overlap, stale paths, discoverable, large always-on) | done | deterministic, zero model calls |
 | 5 Pane UI (o/t/i/e tabs, r refresh, Esc close) | done | |
-| 6 Reports · 7 Eval · 8 Dogfood | todo | |
+| 6 Reports (`/context-lab report`) | done | |
+| 7 Eval harness (init, worktrees, graders, bootstrap CI, verdicts) | done | end-to-end tested with real git |
+| 8 Dogfood | see below | |
 
 ## Use
 
@@ -28,10 +30,22 @@ Views:
 overview                context used, always-on instructions with ~sizes
 tree                    architecture by tier, imports nested, ● observed ◐ inferred ○ available
 issues                  evidence-backed findings: duplicates, overlap, stale paths, listings, size
+/context-lab init       create .context-lab/ (config, task example, variants and graders folders)
+/context-lab report     write .context-lab/reports/<timestamp>.md
+/context-lab eval <v>   baseline vs variant <v> in isolated git worktrees (eval stop: stop)
 /context-lab doctor     (text) what this Claude Code build exposes, git state, readiness
 ```
 
 Requires Claude Code >= 2.1.287 (developed on 2.1.291).
+
+## Experiments without a session
+
+A headless `claude -p` cannot run a Mod's command, so the same harness has a CLI:
+
+```text
+node scripts/eval.ts init
+node scripts/eval.ts <variant>
+```
 
 ## Develop
 

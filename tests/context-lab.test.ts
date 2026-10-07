@@ -20,6 +20,8 @@ interface WorldOptions {
   failUsage?: boolean
   /** The project's files, relative to ROOT. */
   disk?: Record<string, string>
+  /** Paths `git status` reports as changed (relative to ROOT). */
+  dirty?: string[]
   /** Where the session draws; none (a -p run) by default. */
   surfaces?: ("terminal" | "desktop")[]
 }
@@ -87,6 +89,10 @@ function world(on: On, opts: WorldOptions = {}): World {
     const rel = p.slice(ROOT.length + 1)
     return { value: p.startsWith(`${ROOT}/`) && Object.keys(disk).some((f) => f === rel || f.startsWith(`${rel}/`)) }
   })
+  on("fs.write", ($, e) => {
+    disk[key(e.path).slice(ROOT.length + 1)] = e.text
+    return { value: undefined }
+  })
   on("fs.read", ($, e) => {
     const text = disk[key(e.path).slice(ROOT.length + 1)]
     if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
@@ -105,7 +111,15 @@ function world(on: On, opts: WorldOptions = {}): World {
   }))
   on("process.run", ($, e) => {
     const cmd = e.argv.slice(1).join(" ")
-    const out = cmd === "--version" ? "git version 2.47.0\n" : cmd === "rev-parse HEAD" ? "abc123\n" : ""
+    const status = (opts.dirty ?? []).map((p) => ` M ${p}`).join("\n")
+    const zStatus = (opts.dirty ?? []).map((p) => ` M ${p}\u0000`).join("")
+    const out =
+      cmd === "--version" ? "git version 2.47.0\n"
+      : cmd === "rev-parse HEAD" ? "abc123\n"
+      : cmd === "rev-parse --show-toplevel" ? `${ROOT}\n`
+      : cmd === "status --porcelain" ? status
+      : cmd.startsWith("status --porcelain=v1 -z") ? zStatus
+      : ""
     return { value: { exitCode: 0, stdout: out, stderr: "", isStdoutTruncated: false, isStderrTruncated: false } }
   })
   // The engine's own prompt.context: hands back what it was given.
@@ -209,11 +223,10 @@ test("an observer failure never breaks the engine's answer", async ($, on) => {
   expect(w.logs.some((l) => l.includes("context-lab prompt.context"))).toBe(true)
 })
 
-test("unbuilt views say so and write nothing", async ($, on) => {
+test("issues before anything is observed says so", async ($, on) => {
   const w = world(on)
   await start($)
   expect(await run($, "issues")).toContain("Nothing observed yet")
-  expect(await run($, "report")).toContain("Nothing was written")
   expect(await run($, "nope")).toContain('Unknown view "nope"')
   expect(w.store.size).toBe(0)
 })
@@ -450,7 +463,7 @@ for (const surface of ["terminal", "desktop"] as const) {
     expect(issues).toContain("References src/missing.ts, which does not exist.")
 
     await ui.press({ key: "tab-experiments" })
-    expect(JSON.stringify(await ui.drawn())).toContain("No experiments yet")
+    expect(JSON.stringify(await ui.drawn())).toContain("No experiment results yet")
   })
 }
 
@@ -475,5 +488,60 @@ test("headless (no surface): /context-lab answers with the full text, no pane", 
   await start($)
   await $.prompt.context({ blocks: [], instructionFiles: files })
   expect(await run($)).toContain("CONTEXT LAB")
-  expect(await run($, "experiments")).toContain("No experiments yet")
+  expect(await run($, "experiments")).toContain("No experiment results yet")
+})
+
+// Phases 6–7 through the engine: init, report, eval's guards.
+
+test("init creates .context-lab/ once and never overwrites", async ($, on) => {
+  const disk: Record<string, string> = { "CLAUDE.md": "x" }
+  world(on, { disk })
+  await start($)
+  const first = await run($, "init")
+  expect(first).toContain("created  .context-lab/config.json")
+  expect(first).toContain("created  .context-lab/.gitignore")
+  expect(JSON.parse(disk[".context-lab/config.json"]!).trialsPerTask).toBe(3)
+  disk[".context-lab/config.json"] = '{"trialsPerTask": 9}'
+  const second = await run($, "init")
+  expect(second).toContain("kept     .context-lab/config.json (exists, not overwritten)")
+  expect(disk[".context-lab/config.json"]).toBe('{"trialsPerTask": 9}')
+})
+
+test("report writes one Markdown file under .context-lab/reports/, without contents", async ($, on) => {
+  const disk: Record<string, string> = { "CLAUDE.md": "x", "src/a.ts": "x" }
+  world(on, { disk })
+  await start($)
+  await $.prompt.context({
+    blocks: [],
+    instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nSECRET-REPORT-MARKER see `src/gone.ts`\n" }],
+  })
+  const answer = await run($, "report")
+  expect(answer).toMatch(/^Report written: \.\/\.context-lab\/reports\/.+\.md$/)
+  const name = Object.keys(disk).find((k) => k.startsWith(".context-lab/reports/"))!
+  const report = disk[name]!
+  expect(report).toContain("# Context Lab report")
+  expect(report).toContain("| Claude Code | 2.1.291 |")
+  expect(report).toContain("| Git commit | abc123 |")
+  expect(report).toContain("| ./CLAUDE.md | always-on | project |")
+  expect(report).toContain("References src/gone.ts, which does not exist.")
+  expect(report).toContain("## Limitations")
+  expect(report.includes("SECRET-REPORT-MARKER")).toBe(false)
+  expect(Object.keys(disk).filter((k) => !k.startsWith(".context-lab/reports/") && !["CLAUDE.md", "src/a.ts"].includes(k))).toEqual([])
+})
+
+test("eval: refused on a dirty tree, usage without a variant, stop when idle", async ($, on) => {
+  world(on, { disk: { "CLAUDE.md": "x" }, dirty: ["src/app.ts"] })
+  await start($)
+  expect(await run($, "eval")).toContain("Usage: /context-lab eval <variant>")
+  expect(await run($, "eval stop")).toBe("No eval is running.")
+  const dirty = await run($, "eval compact")
+  expect(dirty).toContain("Context Lab eval refused.")
+  expect(dirty).toContain("Commit or stash changes first.")
+  expect(dirty).toContain("src/app.ts")
+})
+
+test("eval: a clean tree with no .context-lab asks for init", async ($, on) => {
+  world(on, { disk: { "CLAUDE.md": "x" } })
+  await start($)
+  expect(await run($, "eval compact")).toBe("No .context-lab/ here: run /context-lab init first.")
 })

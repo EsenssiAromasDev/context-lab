@@ -72,7 +72,7 @@ test("pane views: same text as headless, honest placeholders, one transcript lin
   assert.match(paneLines("issues", input).join("\n"), /Nothing observed yet/)
   const observed = observeContext(emptyGraph(), { blocks: [], instructionFiles: [] }, { at: 1 })
   assert.deepEqual(paneLines("issues", { ...input, graph: observed }), ["Not analyzed yet: press r to run the analyzers."])
-  assert.match(paneLines("experiments", input).join("\n"), /Phase 7/)
+  assert.match(paneLines("experiments", input).join("\n"), /No experiment results yet/)
   assert.deepEqual(TABS.map((t) => t.hotkey), ["o", "t", "i", "e"])
   assert.equal(openedLine("tree").split("\n").length, 1)
 })

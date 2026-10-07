@@ -102,6 +102,15 @@ declare module "claude-code" {
       agents: AgentRecord[]
       /** The pane's view (SPEC §21). */
       view: "overview" | "tree" | "issues" | "experiments"
+      /** The eval in progress, or the latest result, as the Experiments view shows it. */
+      experiment: {
+        status: "running" | "done" | "stopped" | "failed"
+        runId: string
+        variant: string
+        done: number
+        total: number
+        lines: string[]
+      } | null
       /** The analyzers' last findings; null until they ran this session. */
       issues: ContextIssue[] | null
       /** Canonical project root whose stored telemetry is merged into `graph`. */

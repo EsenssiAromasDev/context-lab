@@ -108,6 +108,31 @@ returns one line; only headless runs (no surface to draw on) get the full text. 
 tabs are hotkeyed Buttons; analysis runs on open, on `r`, and the first time `i` is pressed,
 never inside a render (render hooks may not write state).
 
+## D-018 — One eval harness, two hosts
+
+`hooks/eval/*` talks to an `EvalHost` (run argv, read/write/list files, clock). The Mod's host
+wraps `$`; `scripts/eval.ts` wraps Node. Reason: `claude -p` does not resolve a Mod's command as
+its prompt (verified on 2.1.291), so unattended experiments — and Phase 8's dogfood — need a
+CLI, and the harness can be end-to-end tested in Node against real git.
+
+## D-019 — Trials cannot read their graders
+
+Each trial's worktree has `.context-lab/` removed (`git rm -r`) before Claude runs and the
+graders copied in only after it finishes. Worktrees sit outside the repository so the main
+checkout's CLAUDE.md is never an ancestor of a trial. Every trial records the SHA it started
+from; all of a run's trials share it.
+
+## D-020 — `.context-lab/` does not make the tree dirty
+
+Eval definitions and results are not what is measured; requiring a commit for each tweak of a
+task file would only slow iteration. Everything else must be committed or stashed.
+
+## D-021 — Windows: the npm shim is resolved, not run through a shell
+
+`claude` on Windows is often `claude.cmd`, which a shell-less spawn cannot start. The harness
+asks `where claude.cmd`, reads the shim and runs the executable it names; `claude` in
+config.json overrides. No shell is ever used.
+
 ## D-012 — Evidence marks are per context
 
 `node.evidence` is the strongest level ever seen (history across sessions). What the tree

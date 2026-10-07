@@ -581,6 +581,31 @@ Recommended `.gitignore`: `.context-lab/results/`, `.context-lab/reports/`.
 
 ---
 
+### Implementation notes (2.1.291)
+
+- One harness, two hosts: `hooks/eval/*` runs against an `EvalHost` (processes, files). The Mod
+  implements it with `$`; `scripts/eval.ts` with Node, because a headless `claude -p` does not
+  resolve a Mod's command (DECISIONS D-018). Same code, same results format.
+- Worktrees live outside the repository (`<repo parent>/.context-lab-worktrees/<repo>/<run>/`,
+  `worktreeDir` to change it), so the main checkout's instruction files are never an ancestor of
+  a trial, and both arms see the same ancestors.
+- `.context-lab/` is removed from each trial's tree before Claude runs (tasks, variants and
+  graders stay hidden); `.context-lab/evals/graders/` is copied in after Claude finishes, just
+  before the task's grader runs. The grader judges what is on disk even if Claude errored.
+- Clean-tree check: `git status` must be empty except under `.context-lab/` (eval definitions are
+  not what is measured, and can be iterated on without committing).
+- Claude Code runs as `claude -p <prompt> --output-format json [--model m] <claudeArgs>`
+  (default `--permission-mode acceptEdits`), without a shell; on Windows the npm `.cmd` shim is
+  resolved to its executable, or `claude` in config.json names it. One process may run at most
+  10 minutes (`$.process.run`): task timeouts beyond that are clamped.
+- Input tokens per trial = `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
+  from that JSON; cost = `total_cost_usd`; absent figures stay undefined.
+- "Context" per arm = local estimate of the project's always-on instruction files in the trial's
+  tree (`CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/**.md`): the same yardstick both sides.
+- Results: `.context-lab/results/<run>/trials.json` (rewritten after every trial),
+  `summary.json`, `report.md`. In the Mod, a run with a surface continues in the background
+  (status line + Experiments view; `/context-lab eval stop` stops after the current trial).
+
 ## 37. Command surface
 
 One root command: `/context-lab [overview|tree|issues|init|report|eval <variant>|doctor]`.
@@ -683,8 +708,8 @@ Build in this order. Each phase's acceptance gate must pass before the next.
 | 3 Usage | `session.measure`, usage snapshot, engine per-file estimates; skills/agents observers | overview shows real context use | done; skill.prompt and agent.spawn verified live |
 | 4 Analyzers | duplicates, lexical overlap, stale paths, discoverable, large always-on | fixture tests pass, zero LLM calls | done; dogfooded on 8 local repos |
 | 5 UI | Overview / Tree / Issues pane | — | done (harness: terminal + desktop); verify interactively |
-| 6 Reports | `/context-lab report` | — | todo |
-| 7 Eval harness | init, schemas, clean-git guard, worktrees, grader, trials, statistics, experiment UI | — | todo |
+| 6 Reports | `/context-lab report` | — | done |
+| 7 Eval harness | init, schemas, clean-git guard, worktrees, grader, trials, statistics, experiment UI | — | done; e2e-tested with real git |
 | 8 Dogfood | profile this repo, one variant, baseline vs variant, results in README | — | todo |
 
 ## 48. Definition of Done

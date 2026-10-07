@@ -4,7 +4,6 @@ import {
   NESTED_FILES,
   NESTED_SEEN,
   NESTED_UNATTRIBUTED,
-  PENDING,
   TABS,
   isPaneView,
   openedLine,
@@ -21,6 +20,11 @@ import { join, locateLine } from "./analysis/stale-paths.ts"
 import { canonicalPath } from "./graph/graph-builder.ts"
 import { displayPath } from "./graph/graph-selectors.ts"
 import { emptyGraph, restoreGraph, type ContextGraph } from "./graph/graph.ts"
+import { renderReport, reportFileName } from "./commands/report.ts"
+import type { EvalHost } from "./eval/host.ts"
+import { initFiles, renderInit } from "./eval/init.ts"
+import { renderExperiment } from "./eval/report.ts"
+import { latestSummary, prepare, runExperiment, type Prepared } from "./eval/runner.ts"
 import {
   applyEngineTokens,
   deliveredTexts,
@@ -66,7 +70,14 @@ const agentsAtom = atom({ plugin: "context-lab", key: "agents" } as const, [])
 const viewAtom = atom({ plugin: "context-lab", key: "view" } as const, "overview")
 const issuesAtom = atom({ plugin: "context-lab", key: "issues" } as const, null)
 
+const experimentAtom = atom({ plugin: "context-lab", key: "experiment" } as const, null)
+
 const PANE = "context-lab"
+
+// One eval at a time per process; `eval stop` asks the running one to stop
+// after its current trial.
+let evalRunning = false
+let stopRequested = false
 
 // Cross-session telemetry in $.store, per project. Bump the version when the
 // stored graph's shape changes; older entries are then ignored.
@@ -165,8 +176,10 @@ export const register: Register = (on) => {
         return { text: paneLines(view, await viewInput($)).join("\n") }
       }
       if (parsed.view === "doctor") return { text: renderDoctor(await probe($)) }
-      const pending = PENDING[parsed.view]
-      return { text: pending ?? renderHelp(parsed) }
+      if (parsed.view === "init") return { text: await initProject($) }
+      if (parsed.view === "report") return { text: await writeReport($) }
+      if (parsed.view === "eval") return { text: await startEval($, parsed.arg) }
+      return { text: renderHelp(parsed) }
     } catch (err) {
       return { text: `Context Lab error: ${message(err)}` }
     }
@@ -425,9 +438,162 @@ async function findIssues($: EngineInterface): Promise<ContextIssue[]> {
   return analyze(input, existing)
 }
 
+// ── Phase 6–7: init, report, eval ───────────────────────────────────────────
+
+/** The eval harness's view of the machine, through `$` (no shell, ten minutes per process). */
+function evalHost($: EngineInterface, root: string): EvalHost {
+  return {
+    isWindows: /^[a-z]:/i.test(root),
+    run: async (argv, opts = {}) => {
+      const r = await $.process.run([...argv], {
+        ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
+        ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
+      })
+      return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr }
+    },
+    read: (path) => $.fs.read(path),
+    write: (path, text) => $.fs.write(path, text),
+    exists: (path) => $.fs.exists(path),
+    list: async (path) => (await $.fs.list(path)).map((e) => ({ name: e.name, kind: e.kind })),
+    now: () => $.clock.now(),
+  }
+}
+
+/** /context-lab init: creates .context-lab/, never overwriting a file. */
+async function initProject($: EngineInterface): Promise<string> {
+  const root = canonicalPath(await $.session.root())
+  const created: string[] = []
+  const kept: string[] = []
+  for (const f of initFiles()) {
+    const path = join(root, f.path)
+    if (await $.fs.exists(path)) kept.push(f.path)
+    else {
+      await $.fs.write(path, f.text)
+      created.push(f.path)
+    }
+  }
+  return renderInit(created, kept)
+}
+
+/** /context-lab report: one Markdown file under .context-lab/reports/ (SPEC §24). */
+async function writeReport($: EngineInterface): Promise<string> {
+  await refresh($, true)
+  const root = canonicalPath(await $.session.root())
+  const host = evalHost($, root)
+  const at = await $.clock.now()
+  const environment: { claudeVersion?: string; gitSha?: string; gitClean?: boolean; platform: string } = {
+    platform: host.isWindows ? "Windows" : "POSIX",
+  }
+  try {
+    environment.claudeVersion = (await $.session.version()).version
+  } catch {}
+  try {
+    const head = await host.run(["git", "rev-parse", "HEAD"], { cwd: root, timeoutMs: 10_000 })
+    if (head.exitCode === 0) {
+      environment.gitSha = head.stdout.trim()
+      const st = await host.run(["git", "status", "--porcelain"], { cwd: root, timeoutMs: 30_000 })
+      environment.gitClean = st.exitCode === 0 && st.stdout.trim() === ""
+    }
+  } catch {}
+  const usage = await read($, usageAtom)
+  const experiment = await latestSummary(host, root).catch(() => undefined)
+  const text = renderReport({
+    at,
+    root,
+    graph: await read($, graphAtom),
+    ...(usage === null ? {} : { usage }),
+    issues: (await read($, issuesAtom)) ?? [],
+    agents: await read($, agentsAtom),
+    environment,
+    ...(experiment === undefined ? {} : { experiment }),
+  })
+  const path = join(root, `.context-lab/reports/${reportFileName(at)}`)
+  await $.fs.write(path, text)
+  return `Report written: ${displayPath(path, root)}`
+}
+
+/** Shows the latest finished experiment when nothing is running. */
+async function loadLatestExperiment($: EngineInterface): Promise<void> {
+  const current = await read($, experimentAtom)
+  if (current?.status === "running") return
+  const root = canonicalPath(await $.session.root())
+  const summary = await latestSummary(evalHost($, root), root).catch(() => undefined)
+  if (summary && current?.runId !== summary.runId) {
+    await update($, experimentAtom, () => ({
+      status: "done" as const,
+      runId: summary.runId,
+      variant: summary.variant,
+      done: 0,
+      total: 0,
+      lines: renderExperiment(summary).split("\n"),
+    }))
+  }
+}
+
+/**
+ * /context-lab eval <variant>. With a surface the run continues in the
+ * background (progress in the status line and the Experiments view); headless
+ * it runs to the end and answers with the result.
+ */
+async function startEval($: EngineInterface, arg: string | undefined): Promise<string> {
+  if (arg === "stop") {
+    if (!evalRunning) return "No eval is running."
+    stopRequested = true
+    return "Stopping after the current trial."
+  }
+  if (!arg) return "Usage: /context-lab eval <variant>   (variants live in .context-lab/variants/<name>/)"
+  if (evalRunning) return "An eval is already running: /context-lab eval stop to stop it."
+  const root = canonicalPath(await $.session.root())
+  const prepared = await prepare(evalHost($, root), root, arg)
+  if ("error" in prepared) return prepared.error
+  const total = prepared.tasks.length * prepared.config.trialsPerTask * 2
+  evalRunning = true
+  stopRequested = false
+  const run = runEval($, root, prepared, total)
+  if ((await $.session.surfaces()).length === 0) return await run
+  void run
+  return `Eval started: baseline vs ${arg}, ${prepared.tasks.length} task(s) × ${prepared.config.trialsPerTask} trial(s) × 2 = ${total} trials. Progress: status line and /context-lab experiments. /context-lab eval stop to stop.`
+}
+
+async function runEval($: EngineInterface, root: string, prepared: Prepared, total: number): Promise<string> {
+  const variant = prepared.variant.name
+  try {
+    await update($, experimentAtom, () => ({ status: "running" as const, runId: "", variant, done: 0, total, lines: [`Running baseline vs ${variant}: 0/${total} trials`] }))
+    const outcome = await runExperiment(evalHost($, root), root, prepared, {
+      shouldStop: () => stopRequested,
+      onProgress: async (p) => {
+        const line = `Running baseline vs ${variant}: ${p.done}/${p.total} trials${p.current ? ` — now ${p.current}` : ""}`
+        $.ui.status(`Context Lab eval ${p.done}/${p.total}`)
+        await update($, experimentAtom, () => ({ status: "running" as const, runId: p.runId, variant, done: p.done, total: p.total, lines: [line] }))
+      },
+    })
+    const text = renderExperiment(outcome.summary) + (outcome.stopped ? "\n\nStopped before all trials ran." : "")
+    const where = `Results: ${displayPath(outcome.resultsDir, root)}`
+    await update($, experimentAtom, () => ({
+      status: outcome.stopped ? ("stopped" as const) : ("done" as const),
+      runId: outcome.runId,
+      variant,
+      done: outcome.results.length,
+      total,
+      lines: [...text.split("\n"), "", where],
+    }))
+    $.ui.toast(`Context Lab eval ${outcome.stopped ? "stopped" : "finished"}: ${outcome.summary.verdict}`)
+    return `${text}\n\n${where}`
+  } catch (err) {
+    const msg = `Context Lab eval failed: ${message(err)}`
+    await update($, experimentAtom, () => ({ status: "failed" as const, runId: "", variant, done: 0, total, lines: [msg] }))
+    return msg
+  } finally {
+    evalRunning = false
+    stopRequested = false
+    $.ui.status(undefined)
+  }
+}
+
 /** Brings the figures up to date: usage, the analyzers, and with `scan` the repository listing. */
 async function refresh($: EngineInterface, scan: boolean): Promise<void> {
   await ensureLoaded($)
+  await loadLatestExperiment($)
   await measureNow($, undefined)
   if (scan) await scanAvailable($)
   if ((await read($, graphAtom)).contexts > 0) {
@@ -438,7 +604,9 @@ async function refresh($: EngineInterface, scan: boolean): Promise<void> {
 
 async function viewInput($: EngineInterface) {
   const issues = await read($, issuesAtom)
+  const experiment = await read($, experimentAtom)
   return {
+    ...(experiment === null ? {} : { experiment: experiment.lines }),
     graph: await read($, graphAtom),
     usage: (await read($, usageAtom)) ?? undefined,
     root: await $.session.root(),

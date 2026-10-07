@@ -64,6 +64,8 @@ export interface ViewInput {
   issues?: readonly ContextIssue[]
   /** Subagents spawned this session. */
   agents?: readonly AgentRecord[]
+  /** The experiment view's text: a run in progress or the latest result. */
+  experiment?: readonly string[]
 }
 
 export function renderOverview(input: ViewInput): string {
@@ -251,16 +253,11 @@ export function renderHelp(p: Parsed): string {
     "/context-lab doctor       what this Claude Code exposes to Context Lab",
     "/context-lab init         create .context-lab/ for evals",
     "/context-lab report       write a report to .context-lab/reports/",
-    "/context-lab eval <name>  baseline vs context variant",
+    "/context-lab eval <name>  baseline vs context variant (eval stop: stop after the current trial)",
   )
   return lines.join("\n")
 }
 
-export const PENDING: Partial<Record<View, string>> = {
-  init: "init arrives with the eval harness (Phase 7, SPEC §25). Nothing was written.",
-  report: "report arrives in Phase 6 (SPEC §24). Nothing was written.",
-  eval: "eval arrives in Phase 7 (SPEC §26–36). Nothing was run.",
-}
 
 export function compareVersions(a: string, b: string): number {
   const pa = a.split(/[.-]/).map((x) => Number.parseInt(x, 10))
@@ -314,8 +311,15 @@ export function renderIssues(issues: readonly ContextIssue[], graph: ContextGrap
   return lines.join("\n")
 }
 
-export const EXPERIMENTS_PENDING =
-  "No experiments yet. The eval harness (baseline vs context variant in isolated git worktrees) arrives in Phase 7 (SPEC §26–36)."
+export const EXPERIMENTS_EMPTY = [
+  "No experiment results yet.",
+  "",
+  "1. /context-lab init                 creates .context-lab/",
+  "2. add tasks in .context-lab/evals/tasks/ and a variant in .context-lab/variants/<name>/",
+  "3. commit, then /context-lab eval <name>",
+  "",
+  "Each trial runs in its own git worktree from the same commit; baseline and variant alternate.",
+]
 
 /** The body of one pane view, as lines; the same text the command prints headless. */
 export function paneLines(view: PaneView, input: ViewInput): string[] {
@@ -324,7 +328,7 @@ export function paneLines(view: PaneView, input: ViewInput): string[] {
     if (input.issues === undefined && input.graph.contexts > 0) return ["Not analyzed yet: press r to run the analyzers."]
     return renderIssues(input.issues ?? [], input.graph).split("\n")
   }
-  if (view === "experiments") return ["EXPERIMENTS", "", EXPERIMENTS_PENDING]
+  if (view === "experiments") return ["EXPERIMENTS", "", ...(input.experiment ?? EXPERIMENTS_EMPTY)]
   return renderOverview(input).split("\n")
 }
 
