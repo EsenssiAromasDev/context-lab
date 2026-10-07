@@ -1,4 +1,5 @@
 {
+  // Pure modules and their Node tests. Nothing here may touch `$`.
   "compilerOptions": {
     "target": "ES2023",
     "module": "NodeNext",
@@ -13,5 +14,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["core", "storage", "tests", "adapters/claude-code/mapper.ts", "adapters/claude-code/runtime-store.ts"]
+  "include": ["hooks/graph", "hooks/metrics", "hooks/observers", "hooks/commands", "tests/**/*.spec.ts"]
 }

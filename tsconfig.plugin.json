@@ -1,19 +1,12 @@
 {
-  // The Claude Code adapter as the engine runs it: no Node, no DOM. The
-  // engine lays this build's API types into .claude-plugin/types/ each time
-  // it loads the plugin (claude --plugin-dir .); they are not committed.
+  // The hooks module as the engine runs it: no Node, no DOM. Extends the
+  // config the engine lays into .claude-plugin/types/ on each load
+  // (claude --plugin-dir .); those types are not committed.
+  "extends": "./.claude-plugin/types/tsconfig.json",
   "compilerOptions": {
-    "target": "es2023",
-    "lib": ["es2023"],
-    "types": [],
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noEmit": true,
-    "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "typeRoots": ["./.claude-plugin/types"]
   },
-  "include": [".claude-plugin/types", "core", "adapters/claude-code"]
+  "include": [".claude-plugin/types", "hooks", "types", "tests/**/*.test.ts"]
 }

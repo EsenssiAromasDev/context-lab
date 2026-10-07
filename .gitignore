@@ -1,4 +1,5 @@
 node_modules/
-.claudeos/
+.context-lab/results/
+.context-lab/reports/
 # Laid by the engine on every plugin load, for this installed build.
 .claude-plugin/types/

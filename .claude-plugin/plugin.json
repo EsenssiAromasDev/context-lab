@@ -1,8 +1,9 @@
 {
-  "name": "claudeos",
+  "name": "context-lab",
   "version": "0.1.0",
-  "description": "Persistent project state, evidence and ship gating for coding agents (Claude Code adapter).",
+  "description": "Context architecture profiler for Claude Code: what context Claude receives, where it comes from, and whether it earns its cost.",
   "author": {
     "name": "jairogelpi"
-  }
+  },
+  "types": "./types/index.d.ts"
 }

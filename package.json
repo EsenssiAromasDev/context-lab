@@ -1,13 +1,14 @@
 {
-  "name": "claudeos",
+  "name": "context-lab",
   "version": "0.1.0",
   "private": true,
-  "description": "Persistent project state, evidence and ship gating for coding agents (codename ClaudeOS).",
+  "description": "Context architecture profiler and evidence-based optimizer for Claude Code (Mod).",
   "type": "module",
   "engines": { "node": ">=22.18" },
   "scripts": {
     "test": "node --test \"tests/**/*.spec.ts\"",
     "test:plugin": "claude plugin test .",
+    "validate": "claude plugin validate .",
     "typecheck": "tsc -p tsconfig.json",
     "typecheck:plugin": "tsc -p tsconfig.plugin.json"
   },
