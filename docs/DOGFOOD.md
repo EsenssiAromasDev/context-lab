@@ -118,3 +118,22 @@ node scripts/eval.ts no-claude-md        # from the repository root, clean tree
 
 Results land in `.context-lab/results/<run>/` as `trials.json`, `summary.json` and `report.md`.
 That folder is git-ignored.
+
+## 4. Optimize on a real project (2026-10-07)
+
+A private Python project (201 commits, pytest) whose CLAUDE.md had grown to ~58k tokens, run
+on a local clone so the original repository was never touched.
+
+- **Tasks from history:** 115 commits read, 13 candidates checked, **12 calibrated tasks kept**
+  (each one's tests fail on the parent commit and pass on the commit). Nobody wrote a task.
+- **Proposal:** 80% of the CLAUDE.md was a dated log (53 entries). Moving it to
+  `docs/claude-historial.md` with a pointer line, plus one path-scoped rule, took the always-on
+  instructions from **~58k to ~12.6k tokens (−78%)**.
+- **Experiment, stopped after 3 of 12 tasks** (Haiku, 1 trial each): every attempt failed in both
+  arms, so quality could not be compared. These are real, multi-file changes that Haiku could not
+  complete either way. Cost on the same tasks: **$1.93 current vs $1.12 trimmed (−42%)**, a weak
+  signal with three tasks.
+- **Conclusion:** the loop works end to end on a real repository; to judge quality there, the
+  experiment needs a model that solves at least some of the tasks (e.g. Sonnet). The harness now
+  keeps why Claude Code ended in error and the end of a failing grader's output, so a failure can
+  be read rather than guessed.
