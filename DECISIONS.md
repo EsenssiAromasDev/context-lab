@@ -91,6 +91,15 @@ SPEC §44 expects lexical overlap for `redundant-project`; with identical sectio
 an exact duplicate instead. Its rule file differs by one word (overlap ~94%, HIGH); exact
 duplicates are covered by unit tests.
 
+## D-016 — Skills are context nodes; subagents are session topology
+
+A skill's instructions are context delivered on activation, so they are graph nodes
+(observed, counted per activation, persisted as counts/hashes like files). Subagents are not
+context of the main conversation: their records live in `$.state` for the session only, and
+keep structure, never the task prompt or description (conversation content, SPEC §39).
+Verified live: `skill.prompt` 20 ms (keybindings-help body ~3.7k tokens), `agent.spawn`
+121 ms including the subagent's start.
+
 ## D-012 — Evidence marks are per context
 
 `node.evidence` is the strongest level ever seen (history across sessions). What the tree

@@ -16,6 +16,7 @@ export interface BreakdownLike {
   memoryFiles: readonly { path: string; type: string; tokens: number }[]
   categories: readonly { name: string; tokens: number; kind: string; isDeferred: boolean }[]
   autoCompactThreshold?: number
+  skills?: { totalSkills: number; includedSkills: number; tokens: number }
   apiUsage: {
     input_tokens: number
     output_tokens: number
@@ -42,6 +43,8 @@ export interface SessionUsageSnapshot {
   autoCompactThreshold?: number
   /** Engine-estimated breakdown rows (/context's), when a breakdown was fetched. */
   categories?: UsageCategory[]
+  /** The skill listing (names and descriptions, always-on): what progressive disclosure costs up front. */
+  skillListing?: { totalSkills: number; includedSkills: number; tokens: number }
   measuredAt: number
 }
 
@@ -62,6 +65,10 @@ export function toSnapshot(usage: UsageLike, at: number): SessionUsageSnapshot {
       s.cacheWriteTokens = b.apiUsage.cache_creation_input_tokens
     }
     if (isCount(b.autoCompactThreshold)) s.autoCompactThreshold = b.autoCompactThreshold
+    if (b.skills) {
+      const { totalSkills, includedSkills, tokens } = b.skills
+      s.skillListing = { totalSkills, includedSkills, tokens }
+    }
     s.categories = b.categories
       .filter((c) => c.kind === "used" && !c.isDeferred)
       .map((c) => ({ name: c.name, tokens: c.tokens, kind: c.kind }))

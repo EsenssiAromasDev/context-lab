@@ -357,6 +357,19 @@ from progressively disclosed ones.
 **Agents:** `agent.spawn` only to understand topology: agent type, parent (`agentId`), fork
 status (`subagentType === "fork"`), model. No Mission-Control-level visualization in V1.
 
+Implementation notes (verified live on 2.1.291):
+
+- Skill nodes: id `sha256("skill " + name)`, one per skill, `loadCount` = activations. The
+  per-context `skills` list (reset at each `prompt.context`) drives the tree's
+  `SKILLS (activated)` group. Activated skill text is analyzed with the instruction files
+  (a skill repeating `CLAUDE.md` is a duplicate), from memory only.
+- The always-on half of progressive disclosure is shown too: the engine's skill listing
+  (`breakdown.skills`: listed/total skills and its tokens) under *Dynamic* in the overview.
+- Subagents are kept in `$.state` for the session only (≤200), never in `$.store`, and never
+  their prompt or description: type, provider, fork/background/teammate, model, parent,
+  denied. `agent.spawn` does not expose whether a subagent receives instruction files
+  (`omitClaudeMd` exists only on plugin-registered agents): shown as not exposed.
+
 ---
 
 ## 12. Nested context [API 2.1.291]
@@ -662,7 +675,7 @@ Build in this order. Each phase's acceptance gate must pass before the next.
 | 1 Skeleton | plugin loads, `/context-lab` works, test harness, doctor | `claude plugin validate .` + `claude plugin test .` + `npm test` pass | done (gates pass; live load pending) |
 | 2 Context observer | `prompt.context` → ContextNode/Graph, observed hierarchy, `/context-lab tree` | tree shows real loaded instruction architecture | done in harness; verify live |
 | 2b Nested | `prompt.attachment` nested_memory + `$.fs.ancestors` inference + bounded available scan | nested fixture behaves per §44 | done; verified live on 2.1.291 |
-| 3 Usage | `session.measure`, usage snapshot, engine per-file estimates; skills/agents observers | overview shows real context use | usage done; skill/agent observers todo |
+| 3 Usage | `session.measure`, usage snapshot, engine per-file estimates; skills/agents observers | overview shows real context use | done; skill.prompt and agent.spawn verified live |
 | 4 Analyzers | duplicates, lexical overlap, stale paths, discoverable, large always-on | fixture tests pass, zero LLM calls | done; dogfooded on 8 local repos |
 | 5 UI | Overview / Tree / Issues pane | — | todo |
 | 6 Reports | `/context-lab report` | — | todo |

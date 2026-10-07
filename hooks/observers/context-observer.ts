@@ -24,7 +24,7 @@ const INSTRUCTION_KINDS = new Set<ContextKind>(["managed", "user", "project", "l
 
 export function observeContext(graph: ContextGraph, payload: ContextPayload, ctx: ObserveContext): ContextGraph {
   // A new context starts without nested files: they are attached again on demand.
-  let g: ContextGraph = { ...graph, contexts: graph.contexts + 1, nested: [], inferred: [], available: [] }
+  let g: ContextGraph = { ...graph, contexts: graph.contexts + 1, nested: [], inferred: [], available: [], skills: [] }
   if (ctx.sessionId !== undefined) g = { ...g, sessionId: ctx.sessionId }
   const load = { counted: true, sessionId: ctx.sessionId }
 

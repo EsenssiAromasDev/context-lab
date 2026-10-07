@@ -13,7 +13,7 @@ The full V1 specification is [SPEC.md](SPEC.md). Design decisions: [DECISIONS.md
 | 1 Skeleton (`/context-lab`, doctor, tests) | done | |
 | 2 Context observer (`prompt.context` → graph, tree) | done | |
 | 2b Nested files (attached ● / inferred ◐ / available ○) | done | verified live on 2.1.291 |
-| 3 Usage (`session.measure`, engine per-file estimates) | done | skills/agents pending |
+| 3 Usage, skills (`skill.prompt`), subagents (`agent.spawn`) | done | verified live on 2.1.291 |
 | 4 Analyzers (duplicates, lexical overlap, stale paths, discoverable, large always-on) | done | deterministic, zero model calls |
 | 5 Pane UI · 6 Reports · 7 Eval · 8 Dogfood | todo | |
 
@@ -60,6 +60,8 @@ npm run typecheck:plugin     # hooks module against the engine's generated types
   memory is gone and they read the files from disk; such findings say "Read from disk".
 - Stale paths are only reported when the path's first directory exists: a reference to a
   whole removed top-level folder is not caught (by design, to avoid flagging prose).
+- Whether a subagent receives the instruction files is not exposed by `agent.spawn`; the
+  tree says so. Subagent prompts are never stored.
 - Subagents' nested attachments are not counted yet (main conversation only).
 - In `claude -p`, a command registered by a Mod is not resolved for the initial prompt:
   try `/context-lab` in an interactive session.

@@ -66,8 +66,8 @@ export function contextTree(graph: ContextGraph): TreeGroup[] {
   }
   const nested = nestedInstructions(graph)
   if (nested.length) groups.push(group("NESTED (attached on read)", nested, "observed"))
-  const skills = Object.values(graph.nodes).filter((n) => n.kind === "skill")
-  if (skills.length) groups.push(group("SKILLS", skills, "observed"))
+  const skills = pick(graph, graph.skills)
+  if (skills.length) groups.push(group("SKILLS (activated)", skills, "observed"))
   const inferred = pick(graph, graph.inferred)
   if (inferred.length) groups.push(group("POSSIBLE NESTED", inferred, "inferred"))
   const available = pick(graph, graph.available)

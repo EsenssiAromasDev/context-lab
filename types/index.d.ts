@@ -42,6 +42,7 @@ export interface ContextGraph {
   nested: string[]
   inferred: string[]
   available: string[]
+  skills: string[]
   contexts: number
   rewrittenContexts: number
 }
@@ -57,7 +58,22 @@ export interface SessionUsageSnapshot {
   costUsd?: number
   autoCompactThreshold?: number
   categories?: { name: string; tokens: number; kind: string }[]
+  skillListing?: { totalSkills: number; includedSkills: number; tokens: number }
   measuredAt: number
+}
+
+export interface AgentRecord {
+  toolUseId: string
+  agentId?: string
+  parentAgentId?: string
+  type: string
+  provider: string
+  fork: boolean
+  background: boolean
+  teammate: boolean
+  model?: string
+  denied: boolean
+  at: number
 }
 
 declare module "claude-code" {
@@ -67,6 +83,8 @@ declare module "claude-code" {
       usage: SessionUsageSnapshot | null
       /** Engine events observed this session, by name: what doctor can prove. */
       seen: Record<string, number>
+      /** Subagents spawned this session: topology only, never their prompts. */
+      agents: AgentRecord[]
       /** Canonical project root whose stored telemetry is merged into `graph`. */
       loadedFor: string | null
     }

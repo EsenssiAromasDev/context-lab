@@ -107,6 +107,11 @@ function world(on: On, opts: WorldOptions = {}): World {
   // The engine's own prompt.context: hands back what it was given.
   on("prompt.context", ($, e) => ({ blocks: e.blocks, ...(e.instructionFiles ? { instructionFiles: e.instructionFiles } : {}) }))
   on("session.measure", ($, e) => ({ changed: e.changed }))
+  // The engine's own: a skill's text as computed; a spawn starts (DENY refuses it).
+  on("skill.prompt", ($, e) => ({ text: e.text }))
+  on("agent.spawn", ($, e) =>
+    e.description.includes("DENY") ? { deny: "not allowed" } : { model: "claude-haiku-4-5", agentId: `agent-${e.tool_use_id}` },
+  )
   mock.clock(on, { now: 1_000 })
   return { store, logs, setUsage: (u) => (usage = u), walks: () => walks }
 }
@@ -339,4 +344,65 @@ test("issues: thresholds come from .context-lab/config.json", async ($, on) => {
   expect(issues).toContain("Large always-on section")
   expect(issues).toContain("threshold 500, configurable")
   expect(issues).toContain("NOT EXPERIMENTALLY TESTED")
+})
+
+// Phase 3 — dynamic context: skills and subagents (SPEC §11).
+
+const spawnInput = (id: string, over: Record<string, unknown> = {}) => ({
+  tool_use_id: id,
+  prompt: "PROMPT-SECRET task text",
+  description: "explore the repo",
+  subagentType: "Explore",
+  provider: { plugin: "engine", tier: "core" as const },
+  parentModel: "claude-opus-5-5",
+  background: false,
+  fork: false,
+  ...over,
+})
+
+test("skills: an activation is observed in tree and overview, with the listing's cost", async ($, on) => {
+  const w = world(on)
+  await start($)
+  await $.prompt.context({ blocks: [], instructionFiles: files })
+  const sent = await $.skill.prompt({ skill: "commit", text: "# Commit\n" + "Write a good message. ".repeat(40) })
+  expect(sent.text.startsWith("# Commit")).toBe(true)
+  w.setUsage({
+    startedAt: 100,
+    context: {
+      window: 200_000,
+      breakdown: {
+        memoryFiles: [],
+        categories: [],
+        apiUsage: null,
+        skills: { totalSkills: 80, includedSkills: 54, tokens: 2100, skillFrontmatter: [] },
+      },
+    },
+    rateLimits: [],
+  })
+  const tree = await run($, "tree")
+  expect(tree).toContain("● SKILLS (activated)")
+  expect(tree).toContain("● skill: commit")
+  const overview = await run($)
+  expect(overview).toMatch(/Skill listing \(always-on\)\s+~2\.1k {2}54\/80 skills listed/)
+  expect(overview).toMatch(/● skill: commit\s+~\d+ {2}×1/)
+  expect(await run($, "doctor")).toMatch(/skill\.prompt\s+✓ observed ×1/)
+  expect(w.logs).toEqual([])
+})
+
+test("subagents: topology in the tree, prompts never kept, denials counted", async ($, on) => {
+  const w = world(on)
+  await start($)
+  await $.prompt.context({ blocks: [], instructionFiles: files })
+  const started = await $.agent.spawn(spawnInput("t1"))
+  expect(started.agentId).toBe("agent-t1")
+  await $.agent.spawn(spawnInput("t2", { subagentType: "general-purpose", parentAgentId: "agent-t1" }))
+  await $.agent.spawn(spawnInput("t3", { description: "DENY this" }))
+
+  const tree = await run($, "tree")
+  expect(tree).toContain("SUBAGENTS (this session) — Subagents 2 spawned (Explore ×1, general-purpose ×1) · 1 spawned by a subagent · 1 denied")
+  expect(tree).toContain("├─ Explore  claude-haiku-4-5")
+  expect(tree).toContain("│  └─ general-purpose  claude-haiku-4-5")
+  expect(tree).toContain("(DENIED)")
+  expect(await run($, "doctor")).toMatch(/agent\.spawn\s+✓ observed ×3/)
+  expect(JSON.stringify([...w.store.values()]).includes("PROMPT-SECRET")).toBe(false)
 })

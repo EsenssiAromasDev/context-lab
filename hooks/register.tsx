@@ -36,6 +36,8 @@ import {
   type RepoFile,
 } from "./observers/nested-observer.ts"
 import { engineFileTokens, toSnapshot, type UsageLike } from "./metrics/usage.ts"
+import { recordSpawn, type SpawnInput, type SpawnResult } from "./observers/agent-observer.ts"
+import { observeSkill, skillNodeId } from "./observers/skill-observer.ts"
 
 // Context Lab: wiring only. Engine events → pure observers → graph in $.state
 // (live) and $.store (counts across sessions) → /context-lab views.
@@ -43,6 +45,8 @@ import { engineFileTokens, toSnapshot, type UsageLike } from "./metrics/usage.ts
 //   prompt.context   → observed instruction files (observe only, never modified)
 //   prompt.attachment (nested_memory) → nested files the engine attached: observed
 //   tool.call (Read) → the engine's nested walk for the read file: inferred
+//   skill.prompt     → a skill's instructions delivered on activation: observed
+//   agent.spawn      → subagent topology (type, fork, parent; never the prompt)
 //   session.measure  → usage snapshot + engine per-file estimates
 //   command.run      → /context-lab [overview|tree|doctor|...]
 //
@@ -56,6 +60,7 @@ const graphAtom = atom({ plugin: "context-lab", key: "graph" } as const, emptyGr
 const usageAtom = atom({ plugin: "context-lab", key: "usage" } as const, null)
 const seenAtom = atom({ plugin: "context-lab", key: "seen" } as const, {})
 const loadedForAtom = atom({ plugin: "context-lab", key: "loadedFor" } as const, null)
+const agentsAtom = atom({ plugin: "context-lab", key: "agents" } as const, [])
 
 // Cross-session telemetry in $.store, per project. Bump the version when the
 // stored graph's shape changes; older entries are then ignored.
@@ -119,6 +124,18 @@ export const register: Register = (on) => {
     return ran
   })
 
+  on("skill.prompt", async ($, e, next) => {
+    const result = await next(e)
+    track(recordSkill($, e.skill, result.text))
+    return result
+  })
+
+  on("agent.spawn", async ($, e, next) => {
+    const result = await next(e)
+    track(recordAgent($, e, result))
+    return result
+  })
+
   on("session.measure", async ($, e, next) => {
     const result = await next(e)
     track(recordMeasure($, e))
@@ -139,6 +156,7 @@ export const register: Register = (on) => {
           graph,
           usage: (await read($, usageAtom)) ?? undefined,
           root: await $.session.root(),
+          agents: await read($, agentsAtom),
           ...(parsed.view === "overview" && graph.contexts > 0 ? { issues: await findIssues($) } : {}),
         }
         return { text: parsed.view === "tree" ? renderTree(input) : renderOverview(input) }
@@ -214,6 +232,29 @@ async function recordRead($: EngineInterface, filePath: string): Promise<void> {
     await inferNested($, filePath)
   } catch (err) {
     debug($, "tool.call", err)
+  }
+}
+
+async function recordSkill($: EngineInterface, skill: string, text: string): Promise<void> {
+  try {
+    await seen($, "skill.prompt")
+    delivered.set(skillNodeId(skill), text)
+    const at = await $.clock.now()
+    const sessionId = await sessionKey($)
+    const graph = await update($, graphAtom, (g) => observeSkill(g, { skill, text }, { at, sessionId }))
+    await persist($, graph)
+  } catch (err) {
+    debug($, "skill.prompt", err)
+  }
+}
+
+async function recordAgent($: EngineInterface, e: SpawnInput, result: SpawnResult): Promise<void> {
+  try {
+    await seen($, "agent.spawn")
+    const at = await $.clock.now()
+    await update($, agentsAtom, (list) => recordSpawn(list, e, result, at))
+  } catch (err) {
+    debug($, "agent.spawn", err)
   }
 }
 
@@ -322,7 +363,7 @@ async function findIssues($: EngineInterface): Promise<ContextIssue[]> {
   const nativeRoot = await $.session.root()
   const root = canonicalPath(nativeRoot)
   const sources: AnalyzedSource[] = []
-  for (const id of [...graph.current, ...graph.nested]) {
+  for (const id of [...graph.current, ...graph.nested, ...graph.skills]) {
     const node = graph.nodes[id]
     if (!node) continue
     const disk = node.path === undefined ? undefined : await readText($, node.path)

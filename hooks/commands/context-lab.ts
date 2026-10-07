@@ -1,5 +1,6 @@
 import { countBySeverity, type ContextIssue } from "../analysis/issue-engine.ts"
 import type { ContextGraph } from "../graph/graph.ts"
+import { agentTree, summarizeAgents, type AgentRecord, type AgentTreeItem } from "../observers/agent-observer.ts"
 import {
   LEGEND,
   MARK,
@@ -47,6 +48,8 @@ export interface ViewInput {
   root: string | undefined
   /** Findings of the analyzers; undefined when they were not run. */
   issues?: readonly ContextIssue[]
+  /** Subagents spawned this session. */
+  agents?: readonly AgentRecord[]
 }
 
 export function renderOverview(input: ViewInput): string {
@@ -78,6 +81,18 @@ export function renderOverview(input: ViewInput): string {
     lines.push(`${MARK.inferred} ${graph.inferred.length} nested file${s} inferred (found after a Read, delivery not seen)`)
   }
 
+  const skills = graph.skills.map((id) => graph.nodes[id]).filter((n) => n !== undefined)
+  const agents = input.agents ?? []
+  if (skills.length || usage?.skillListing || agents.length) {
+    lines.push("", "Dynamic (loaded on demand)")
+    const listing = usage?.skillListing
+    if (listing) {
+      lines.push(row("Skill listing (always-on)", `${approx(listing.tokens)}  ${listing.includedSkills}/${listing.totalSkills} skills listed`, 2))
+    }
+    for (const n of skills) lines.push(row(`${MARK.observed} ${n.name}`, `${approx(tokensOf(n))}  ×${n.loadCount}`, 2))
+    if (agents.length) lines.push(`  ${agentLine(agents)}`)
+  }
+
   if (usage?.categories?.length) {
     lines.push("", "Runtime (engine estimate)")
     for (const c of usage.categories) lines.push(row(c.name, approx(c.tokens), 2))
@@ -97,7 +112,7 @@ export function renderOverview(input: ViewInput): string {
   return lines.join("\n")
 }
 
-export function renderTree({ graph, root }: ViewInput): string {
+export function renderTree({ graph, root, agents }: ViewInput): string {
   const lines = ["SESSION CONTEXT", "│"]
   const groups = contextTree(graph)
   if (groups.length === 0) {
@@ -113,8 +128,37 @@ export function renderTree({ graph, root }: ViewInput): string {
   if (graph.rewrittenContexts > 0) {
     lines.push("", `Note: ${graph.rewrittenContexts} context(s) had claudeMd rewritten by a hook; files behind it unknown.`)
   }
+  if (agents?.length) {
+    lines.push("", `SUBAGENTS (this session) — ${agentLine(agents)}`)
+    drawAgents(agentTree(agents), "", lines)
+    lines.push("Whether a subagent receives instruction files is not exposed by agent.spawn on this build.")
+  }
   lines.push("", LEGEND)
   return lines.join("\n")
+}
+
+function agentLine(agents: readonly AgentRecord[]): string {
+  const s = summarizeAgents(agents)
+  const types = s.byType.map((t) => `${t.type} ×${t.count}`).join(", ")
+  const extra = [
+    s.forks ? `${s.forks} fork${s.forks === 1 ? "" : "s"}` : "",
+    s.nested ? `${s.nested} spawned by a subagent` : "",
+    s.denied ? `${s.denied} denied` : "",
+  ].filter(Boolean)
+  return `Subagents ${s.spawned} spawned${types ? ` (${types})` : ""}${extra.length ? ` · ${extra.join(" · ")}` : ""}`
+}
+
+function drawAgents(items: readonly AgentTreeItem[], pad: string, out: string[]): void {
+  items.forEach((item, i) => {
+    const last = i === items.length - 1
+    const a = item.agent
+    const flags = [a.fork ? "fork" : "", a.background ? "background" : "", a.teammate ? "teammate" : "", a.denied ? "DENIED" : ""]
+      .filter(Boolean)
+      .join(", ")
+    const by = a.provider === "engine" ? "" : `  [${a.provider}]`
+    out.push(`${pad}${last ? "└─" : "├─"} ${a.type}${a.model ? `  ${a.model}` : ""}${flags ? `  (${flags})` : ""}${by}`)
+    drawAgents(item.children, pad + (last ? "   " : "│  "), out)
+  })
 }
 
 function drawItems(items: TreeItem[], pad: string, root: string | undefined, out: string[]): void {

@@ -63,6 +63,8 @@ export interface ContextGraph {
   nested: string[]
   inferred: string[]
   available: string[]
+  /** Skills whose instructions were delivered in this context (activated), in order. */
+  skills: string[]
   /** Contexts observed in total, and how many had their files hidden by a rewrite. */
   contexts: number
   rewrittenContexts: number
@@ -77,6 +79,7 @@ export function emptyGraph(at = 0): ContextGraph {
     nested: [],
     inferred: [],
     available: [],
+    skills: [],
     contexts: 0,
     rewrittenContexts: 0,
   }
@@ -100,6 +103,7 @@ export function restoreGraph(value: unknown): ContextGraph | null {
     nested: [],
     inferred: [],
     available: [],
+    skills: [],
     contexts: g.contexts,
     rewrittenContexts: typeof g.rewrittenContexts === "number" ? g.rewrittenContexts : 0,
   }
