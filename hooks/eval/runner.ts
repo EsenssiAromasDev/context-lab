@@ -255,6 +255,8 @@ async function runTrial(host: EvalHost, root: string, p: Prepared, slot: Slot, d
     try {
       const g = await host.run(slot.task.graderArgv, { cwd: wtRoot, timeoutMs: p.config.graderTimeoutSeconds * 1000 })
       r.graderExitCode = g.exitCode
+      // The end of the grader's output says why a failing attempt failed.
+      if (g.exitCode !== 0) r.graderOutput = `${g.stdout}\n${g.stderr}`.trim().slice(-1500)
       r.success = g.exitCode === 0
     } catch (err) {
       r.error = [r.error, `grader did not finish: ${err instanceof Error ? err.message : String(err)}`].filter(Boolean).join("; ")

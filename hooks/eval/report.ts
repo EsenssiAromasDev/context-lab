@@ -26,6 +26,8 @@ export interface TrialResult {
   claudeVersion: string
   gitSha: string
   startedAt: number
+  /** The last part of a failing grader's output (test names and errors), never Claude's conversation. */
+  graderOutput?: string
   /** Why the trial could not be judged normally (timeout, Claude error), when it could not. */
   error?: string
 }
