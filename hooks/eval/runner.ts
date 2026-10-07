@@ -61,6 +61,8 @@ export interface ClaudeOutput {
   outputTokens?: number
   costUsd?: number
   isError?: boolean
+  /** Why it ended, when it ended in error: the result's subtype and the start of its text. */
+  detail?: string
 }
 
 /** `claude -p --output-format json`'s figures; a figure it does not give stays undefined. */
@@ -84,6 +86,10 @@ export function parseClaudeOutput(stdout: string): ClaudeOutput {
   const cost = n(j.total_cost_usd)
   if (cost !== undefined) out.costUsd = cost
   if (typeof j.is_error === "boolean") out.isError = j.is_error
+  if (out.isError) {
+    const why = [typeof j.subtype === "string" ? j.subtype : "", typeof j.result === "string" ? j.result.replace(/\s+/g, " ").slice(0, 160) : ""]
+    out.detail = why.filter(Boolean).join(": ")
+  }
   return out
 }
 
@@ -234,7 +240,10 @@ async function runTrial(host: EvalHost, root: string, p: Prepared, slot: Slot, d
       if (out.inputTokens !== undefined) r.inputTokens = out.inputTokens
       if (out.outputTokens !== undefined) r.outputTokens = out.outputTokens
       if (out.costUsd !== undefined) r.costUsd = out.costUsd
-      if (run.exitCode !== 0 || out.isError) r.error = `Claude Code exited ${run.exitCode}${out.isError ? " (is_error)" : ""}`
+      if (run.exitCode !== 0 || out.isError) {
+        const detail = out.detail ?? run.stderr.replace(/\s+/g, " ").trim().slice(0, 160)
+        r.error = `Claude Code exited ${run.exitCode}${detail ? ` — ${detail}` : ""}`
+      }
     } catch (err) {
       r.error = `Claude Code did not finish: ${err instanceof Error ? err.message : String(err)}`
     }
