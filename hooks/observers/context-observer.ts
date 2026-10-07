@@ -121,3 +121,21 @@ function toKind(kind: string): ContextKind {
 function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1) || path
 }
+
+/**
+ * The text each instruction node was actually sent with, keyed by node id:
+ * for the analyzers, held in memory only, never persisted (SPEC §39).
+ */
+export function deliveredTexts(payload: ContextPayload): Map<string, string> {
+  const out = new Map<string, string>()
+  if (payload.instructionFiles === undefined) {
+    const block = payload.blocks.find((b) => b.name === "claudeMd")
+    if (block) out.set(nodeId("unknown", "claudeMd"), block.text)
+    return out
+  }
+  for (const f of payload.instructionFiles) {
+    const canon = canonicalPath(f.path)
+    out.set(nodeId(toKind(f.kind), canon), f.content)
+  }
+  return out
+}

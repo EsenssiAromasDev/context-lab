@@ -421,6 +421,14 @@ Never call this semantic similarity. Call it **lexical overlap**.
 Extract probable repository paths (backticked paths, `./x`, `dir/` tokens with a slash and a
 plausible extension or trailing slash) and check existence. Do not flag ordinary English.
 
+Implementation rules (from dogfooding real CLAUDE.md files, DECISIONS D-014):
+- a path is only reported when its first segment exists (anchored): `src/legacy/x.ts` with
+  `src/` present, never `width/height/fps` or a path relative to some other base;
+- generated or local-only paths (`dist/`, `out/`, `build/`, `*-out/`, `.env*`…) are never stale;
+- alternatives (`system_a/b/c`, `.ttf/.otf`) and elisions (`a/.../b.md`) are not paths;
+- code fences are skipped (trees belong to §16); one issue per file and path, every line listed;
+- line numbers are located in the file on disk (the delivered text lost comments/frontmatter).
+
 ```text
 STALE_REFERENCE
 CLAUDE.md:82  →  src/services/legacy-api.ts
@@ -434,6 +442,9 @@ Confidence: HIGH
 Conservative V1 patterns: large directory trees, long explicit file inventories, generated
 module listings. If most listed entries exist in the filesystem → `DISCOVERABLE_CONTEXT`,
 "candidate for on-demand discovery", **requires eval before removal**. Never auto-delete.
+
+Thresholds are read from `.context-lab/config.json` when present (`largeSectionEstimatedTokens`,
+`overlapHigh`, `overlapMedium`, `discoverableMinRatio`); out-of-range values keep the defaults.
 
 ## 17. Analyzer E — large always-on sections
 
@@ -652,7 +663,7 @@ Build in this order. Each phase's acceptance gate must pass before the next.
 | 2 Context observer | `prompt.context` → ContextNode/Graph, observed hierarchy, `/context-lab tree` | tree shows real loaded instruction architecture | done in harness; verify live |
 | 2b Nested | `prompt.attachment` nested_memory + `$.fs.ancestors` inference + bounded available scan | nested fixture behaves per §44 | done; verified live on 2.1.291 |
 | 3 Usage | `session.measure`, usage snapshot, engine per-file estimates; skills/agents observers | overview shows real context use | usage done; skill/agent observers todo |
-| 4 Analyzers | duplicates, lexical overlap, stale paths, discoverable, large always-on | fixture tests pass, zero LLM calls | todo |
+| 4 Analyzers | duplicates, lexical overlap, stale paths, discoverable, large always-on | fixture tests pass, zero LLM calls | done; dogfooded on 8 local repos |
 | 5 UI | Overview / Tree / Issues pane | — | todo |
 | 6 Reports | `/context-lab report` | — | todo |
 | 7 Eval harness | init, schemas, clean-git guard, worktrees, grader, trials, statistics, experiment UI | — | todo |

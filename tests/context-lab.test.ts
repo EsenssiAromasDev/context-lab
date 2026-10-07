@@ -74,8 +74,20 @@ function world(on: On, opts: WorldOptions = {}): World {
     logs.push(e.text)
     return { value: undefined }
   })
-  on("fs.exists", () => ({ value: true }))
   const disk = opts.disk ?? {}
+  // Without a disk every path exists (root, git); with one, its files and their directories do.
+  on("fs.exists", ($, e) => {
+    if (opts.disk === undefined) return { value: true }
+    const p = key(e.path).replace(/\/$/, "")
+    if (p === ROOT) return { value: true }
+    const rel = p.slice(ROOT.length + 1)
+    return { value: p.startsWith(`${ROOT}/`) && Object.keys(disk).some((f) => f === rel || f.startsWith(`${rel}/`)) }
+  })
+  on("fs.read", ($, e) => {
+    const text = disk[key(e.path).slice(ROOT.length + 1)]
+    if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
+    return { value: text }
+  })
   let walks = 0
   on("fs.ancestors", ($, e) => {
     walks += 1
@@ -191,7 +203,7 @@ test("an observer failure never breaks the engine's answer", async ($, on) => {
 test("unbuilt views say so and write nothing", async ($, on) => {
   const w = world(on)
   await start($)
-  expect(await run($, "issues")).toContain("Phase 4")
+  expect(await run($, "issues")).toContain("Nothing observed yet")
   expect(await run($, "report")).toContain("Nothing was written")
   expect(await run($, "nope")).toContain('Unknown view "nope"')
   expect(w.store.size).toBe(0)
@@ -280,4 +292,51 @@ test("nested: the walk runs once per directory per context, and never outside th
   await $.tool.call({ tool: "Read", file_path: `${ROOT}/src/api/CLAUDE.md` })
   await $.tool.call({ tool: "Read", file_path: "/etc/hosts" })
   expect(w.walks()).toBe(1)
+})
+
+// Phase 4 — issues from what Claude was sent (SPEC §13–19).
+
+test("issues: lexical overlap between delivered files, counted in the overview", async ($, on) => {
+  world(on, { disk: { "CLAUDE.md": "x", ".claude/rules/testing.md": "x" } })
+  await start($)
+  const body = "Always run the full test suite with npm test before you open a pull request and fix every failure you find"
+  await $.prompt.context({
+    blocks: [],
+    instructionFiles: [
+      { path: `${ROOT}/CLAUDE.md`, kind: "project", content: `# P\n## Testing\n${body}.` },
+      { path: `${ROOT}/.claude/rules/testing.md`, kind: "project", content: `## Testing\n${body} promptly.` },
+    ],
+  })
+  const issues = await run($, "issues")
+  expect(issues).toContain("MEDIUM  Lexical overlap (HIGH)")
+  expect(issues).toContain("./CLAUDE.md > Testing")
+  expect(issues).toContain("./.claude/rules/testing.md > Testing")
+  expect(await run($)).toMatch(/Issues\s+1/)
+})
+
+test("issues: stale paths are checked on disk and located on the file's real line", async ($, on) => {
+  // On disk the file has frontmatter and a comment the engine strips before sending.
+  const onDisk = "---\nx: 1\n---\n<!-- note -->\n# P\nSee `src/api/service.ts` and `src/missing.ts`.\n"
+  world(on, { disk: { "CLAUDE.md": onDisk, "src/api/service.ts": "code" } })
+  await start($)
+  await $.prompt.context({
+    blocks: [],
+    instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nSee `src/api/service.ts` and `src/missing.ts`.\n" }],
+  })
+  const issues = await run($, "issues")
+  expect(issues).toContain("LOW  Stale path")
+  expect(issues).toContain("./CLAUDE.md:6")
+  expect(issues).toContain("References src/missing.ts, which does not exist.")
+  expect(issues.includes("src/api/service.ts, which")).toBe(false)
+})
+
+test("issues: thresholds come from .context-lab/config.json", async ($, on) => {
+  const big = `# Architecture\n${"word ".repeat(700)}`
+  world(on, { disk: { "CLAUDE.md": big, ".context-lab/config.json": JSON.stringify({ largeSectionEstimatedTokens: 500 }) } })
+  await start($)
+  await $.prompt.context({ blocks: [], instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: big }] })
+  const issues = await run($, "issues")
+  expect(issues).toContain("Large always-on section")
+  expect(issues).toContain("threshold 500, configurable")
+  expect(issues).toContain("NOT EXPERIMENTALLY TESTED")
 })

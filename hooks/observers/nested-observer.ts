@@ -203,3 +203,13 @@ function relative(path: string, root: string): string {
 function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1) || path
 }
+
+/** The text of each nested file an attachment carried, keyed by node id (memory only). */
+export function attachmentTexts(text: string): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const f of parseNestedMemory(text)) {
+    const canon = canonicalPath(f.path)
+    out.set(nodeId(kindForPath(canon), canon), f.content)
+  }
+  return out
+}

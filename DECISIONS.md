@@ -68,6 +68,29 @@ A file read from disk (inferred) and the same file as the engine attached it has
 differently, which produced false `contentChanges`. Inferred/available updates keep an
 observed node's hash and sizes; content changes are only counted between two deliveries.
 
+## D-013 — Analyzers read the delivered text, from memory
+
+What Claude is sent (comments and frontmatter stripped, imports separate) is what is analyzed.
+That text is kept in the hooks module's memory (`delivered`, never `$.state`/`$.store`); after a
+reload it is gone and the file is read from disk, flagged "Read from disk". Line numbers are
+located in the file on disk so they match what the person edits. Analysis runs only on
+`/context-lab` and `/context-lab issues` (fixtures ~1 ms; a 235k-char CLAUDE.md ~115 ms).
+
+## D-014 — Stale paths must be anchored
+
+Dogfooding on 8 local repositories, the first version reported 15+ "stale paths" in one file
+that were prose (`width/height/fps`), alternatives (`system_a/b/c`, `.ttf/.otf`), elisions,
+build output (`apps/cli/dist/`) or paths relative to another base. Now a path is reported only
+when its first segment exists; generated/env paths, alternatives and elisions are excluded.
+Result on that file: 3 findings, each a real missing file. Cost: a reference to a wholly
+removed top-level folder is missed.
+
+## D-015 — Redundant fixture is a near-duplicate
+
+SPEC §44 expects lexical overlap for `redundant-project`; with identical sections it would be
+an exact duplicate instead. Its rule file differs by one word (overlap ~94%, HIGH); exact
+duplicates are covered by unit tests.
+
 ## D-012 — Evidence marks are per context
 
 `node.evidence` is the strongest level ever seen (history across sessions). What the tree

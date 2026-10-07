@@ -8,16 +8,27 @@ import {
   parseArgs,
   renderDoctor,
   renderHelp,
+  renderIssues,
   renderOverview,
   renderTree,
   type DoctorFacts,
 } from "./commands/context-lab.ts"
+import { parseAnalysisConfig } from "./analysis/config.ts"
+import { analyze, pathsToCheck, type AnalyzedSource, type ContextIssue } from "./analysis/issue-engine.ts"
+import { join, locateLine } from "./analysis/stale-paths.ts"
 import { canonicalPath } from "./graph/graph-builder.ts"
+import { displayPath } from "./graph/graph-selectors.ts"
 import { emptyGraph, restoreGraph, type ContextGraph } from "./graph/graph.ts"
-import { applyEngineTokens, observeContext, type ContextPayload } from "./observers/context-observer.ts"
+import {
+  applyEngineTokens,
+  deliveredTexts,
+  observeContext,
+  type ContextPayload,
+} from "./observers/context-observer.ts"
 import {
   AVAILABLE_NAMES,
   NESTED_NAMES,
+  attachmentTexts,
   inferFromRead,
   markAvailable,
   observeNestedAttachment,
@@ -63,6 +74,13 @@ const walked = new Set<string>()
 const inFlight = new Set<Promise<void>>()
 // Contexts (and their file counts) whose engine breakdown was already asked for.
 const breakdownAsked = new Set<string>()
+// The text each instruction node was last sent with, for the analyzers. In
+// this process's memory only, never persisted (SPEC §39); after a reload the
+// analyzers read the file from disk and say so.
+const delivered = new Map<string, string>()
+// Analysis bounds: existence checks per run, and how many run at once.
+const MAX_PATH_CHECKS = 2000
+const CHECK_BATCH = 50
 
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
@@ -111,14 +129,17 @@ export const register: Register = (on) => {
     const parsed = parseArgs(e.args)
     try {
       await Promise.allSettled([...inFlight])
-      if (parsed.view === "overview" || parsed.view === "tree") {
+      if (parsed.view === "overview" || parsed.view === "tree" || parsed.view === "issues") {
         await ensureLoaded($)
-        await measureNow($, undefined)
+        if (parsed.view !== "issues") await measureNow($, undefined)
         if (parsed.view === "tree") await scanAvailable($)
+        const graph = await read($, graphAtom)
+        if (parsed.view === "issues") return { text: renderIssues(await findIssues($), graph) }
         const input = {
-          graph: await read($, graphAtom),
+          graph,
           usage: (await read($, usageAtom)) ?? undefined,
           root: await $.session.root(),
+          ...(parsed.view === "overview" && graph.contexts > 0 ? { issues: await findIssues($) } : {}),
         }
         return { text: parsed.view === "tree" ? renderTree(input) : renderOverview(input) }
       }
@@ -153,6 +174,7 @@ function track(work: Promise<void>): void {
 
 async function recordContext($: EngineInterface, result: ContextPayload): Promise<void> {
   try {
+    for (const [id, text] of deliveredTexts(result)) delivered.set(id, text)
     await seen($, "prompt.context")
     await ensureLoaded($)
     const at = await $.clock.now()
@@ -168,7 +190,8 @@ async function recordAttachment($: EngineInterface, text: string): Promise<void>
   try {
     await seen($, "prompt.attachment")
     await seen($, NESTED_SEEN)
-    const ctx = { at: await $.clock.now(), root: await $.session.root(), sessionId: await sessionKey($) }
+    for (const [id, delivery] of attachmentTexts(text)) delivered.set(id, delivery)
+    const ctx ={ at: await $.clock.now(), root: await $.session.root(), sessionId: await sessionKey($) }
     let attributed = 0
     const graph = await update($, graphAtom, (g) => {
       const out = observeNestedAttachment(g, text, ctx)
@@ -287,6 +310,54 @@ async function scanAvailable($: EngineInterface): Promise<void> {
   }
   const at = await $.clock.now()
   await update($, graphAtom, (g) => markAvailable(g, files, { at, root }))
+}
+
+/**
+ * Runs the analyzers over this context's instruction files (always-on and
+ * nested), as delivered when in memory, else as on disk. Existence checks are
+ * batched and bounded; nothing is written.
+ */
+async function findIssues($: EngineInterface): Promise<ContextIssue[]> {
+  const graph = await read($, graphAtom)
+  const nativeRoot = await $.session.root()
+  const root = canonicalPath(nativeRoot)
+  const sources: AnalyzedSource[] = []
+  for (const id of [...graph.current, ...graph.nested]) {
+    const node = graph.nodes[id]
+    if (!node) continue
+    const disk = node.path === undefined ? undefined : await readText($, node.path)
+    const memory = delivered.get(id)
+    const text = memory ?? disk
+    if (text === undefined) continue
+    sources.push({
+      nodeId: id,
+      file: node.path === undefined ? node.name : displayPath(node.path, root),
+      text,
+      fromDisk: memory === undefined,
+      ...(disk === undefined ? {} : { diskLine: (line: number, needle: string) => locateLine(disk, needle, line) }),
+    })
+  }
+  const config = parseAnalysisConfig(await readText($, join(root, ".context-lab/config.json")))
+  const input = { graph, sources, root, config }
+  const candidates = pathsToCheck(input).slice(0, MAX_PATH_CHECKS)
+  const existing = new Set<string>()
+  for (let i = 0; i < candidates.length; i += CHECK_BATCH) {
+    const batch = candidates.slice(i, i + CHECK_BATCH)
+    const found = await Promise.all(batch.map((p) => $.fs.exists(p).catch(() => false)))
+    batch.forEach((p, j) => {
+      if (found[j]) existing.add(p)
+    })
+  }
+  return analyze(input, existing)
+}
+
+async function readText($: EngineInterface, path: string): Promise<string | undefined> {
+  try {
+    if (!(await $.fs.exists(path))) return undefined
+    return await $.fs.read(path)
+  } catch {
+    return undefined
+  }
 }
 
 async function probe($: EngineInterface): Promise<DoctorFacts> {

@@ -1,3 +1,4 @@
+import { countBySeverity, type ContextIssue } from "../analysis/issue-engine.ts"
 import type { ContextGraph } from "../graph/graph.ts"
 import {
   LEGEND,
@@ -44,9 +45,12 @@ export interface ViewInput {
   graph: ContextGraph
   usage: SessionUsageSnapshot | undefined
   root: string | undefined
+  /** Findings of the analyzers; undefined when they were not run. */
+  issues?: readonly ContextIssue[]
 }
 
-export function renderOverview({ graph, usage, root }: ViewInput): string {
+export function renderOverview(input: ViewInput): string {
+  const { graph, usage, root } = input
   const lines = ["CONTEXT LAB", ""]
   lines.push(row("Context", contextFigure(usage)))
   if (usage?.contextPercent !== undefined) lines.push(bar(usage.contextPercent))
@@ -80,7 +84,14 @@ export function renderOverview({ graph, usage, root }: ViewInput): string {
   }
   if (usage?.costUsd !== undefined) lines.push("", row("Session cost", `$${usage.costUsd.toFixed(2)}`))
 
-  lines.push("", "Issues                analyzers not built yet (Phase 4)")
+  lines.push("")
+  if (input.issues === undefined) lines.push("Issues                not analyzed")
+  else if (input.issues.length === 0) lines.push(row("Issues", "0"))
+  else {
+    const c = countBySeverity(input.issues)
+    lines.push(row("Issues", String(input.issues.length)))
+    for (const sev of ["high", "medium", "low", "info"] as const) if (c[sev]) lines.push(row(sev.toUpperCase(), String(c[sev]), 2))
+  }
   lines.push("", LEGEND)
   lines.push("/context-lab tree · issues · doctor")
   return lines.join("\n")
@@ -187,7 +198,6 @@ export function renderHelp(p: Parsed): string {
 }
 
 export const PENDING: Partial<Record<View, string>> = {
-  issues: "Issues: the analyzers arrive in Phase 4 (SPEC §13–17). Nothing is reported until they exist.",
   init: "init arrives with the eval harness (Phase 7, SPEC §25). Nothing was written.",
   report: "report arrives in Phase 6 (SPEC §24). Nothing was written.",
   eval: "eval arrives in Phase 7 (SPEC §26–36). Nothing was run.",
@@ -220,3 +230,27 @@ function row(label: string, value: string, indent = 0): string {
   return left.length >= width ? `${left}  ${value}` : left.padEnd(width) + value
 }
 
+
+/** /context-lab issues: every finding with the evidence it rests on (SPEC §19, §23). */
+export function renderIssues(issues: readonly ContextIssue[], graph: ContextGraph): string {
+  const lines = ["CONTEXT ISSUES", ""]
+  if (graph.contexts === 0) {
+    lines.push("Nothing observed yet: issues are found in the context Claude was actually sent.")
+    return lines.join("\n")
+  }
+  if (issues.length === 0) {
+    lines.push("No issues found by the deterministic analyzers.")
+    lines.push("(duplicates, lexical overlap, stale paths, discoverable listings, large always-on sections)")
+    return lines.join("\n")
+  }
+  issues.forEach((issue, i) => {
+    lines.push(`[${i + 1}] ${issue.severity.toUpperCase()}  ${issue.title}`)
+    for (const loc of issue.locations) lines.push(`    ${loc}`)
+    lines.push(`    ${issue.explanation}`)
+    for (const d of issue.details) lines.push(`    ${d.label.padEnd(13)} ${d.text}`)
+    if (issue.requiresEval) lines.push("    Status:       NOT EXPERIMENTALLY TESTED")
+    lines.push("")
+  })
+  lines.push("Findings are candidates, not verdicts. Nothing is changed automatically.")
+  return lines.join("\n")
+}
