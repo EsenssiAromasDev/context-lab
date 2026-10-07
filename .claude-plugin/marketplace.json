@@ -1,0 +1,6 @@
+{
+  "name": "context-lab",
+  "description": "Context Lab: a Claude Code Mod that profiles the context Claude receives and tests context changes with baseline-vs-variant evals.",
+  "owner": { "name": "jairogelpi" },
+  "plugins": [{ "name": "context-lab", "source": "./" }]
+}

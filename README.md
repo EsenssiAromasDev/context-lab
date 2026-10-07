@@ -20,6 +20,14 @@ The full V1 specification is [SPEC.md](SPEC.md). Design decisions: [DECISIONS.md
 | 7 Eval harness (init, worktrees, graders, bootstrap CI, verdicts) | done | end-to-end tested with real git |
 | 8 Dogfood | done | [docs/DOGFOOD.md](docs/DOGFOOD.md): self-profile + baseline vs no-CLAUDE.md |
 
+## Install
+
+```text
+/plugin install context-lab --marketplace EsenssiAromasDev/context-lab
+```
+
+Answer `y` to add the marketplace and pick a scope. Requires Claude Code >= 2.1.287.
+
 ## Use
 
 ```text
