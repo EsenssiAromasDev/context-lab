@@ -71,6 +71,9 @@ function apply(s: ProjectState, e: ClaudeOSEvent): ProjectState {
       return { ...s, changedFiles, lastChangeAt: e.at, phase: "implementing" }
     }
 
+    case "WORKTREE_CHANGED":
+      return { ...s, lastChangeAt: e.at, phase: "implementing" }
+
     case "CHECK_RAN":
       return { ...s, evidence: { ...s.evidence, [e.kind]: e.result } }
 

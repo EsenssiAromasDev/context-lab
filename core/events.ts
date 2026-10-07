@@ -12,6 +12,9 @@ export type ClaudeOSEventBody =
   | { type: "TASK_COMPLETED"; taskId: string }
   | { type: "DECISION_MADE"; id: string; text: string }
   | { type: "FILE_CHANGED"; path: string }
+  // Files may have changed but the adapter cannot say which (a shell command
+  // in a project without git). Invalidates evidence like FILE_CHANGED.
+  | { type: "WORKTREE_CHANGED"; reason: string }
   | { type: "CHECK_RAN"; kind: CheckKind; result: CheckResult }
   | { type: "BLOCKER_FOUND"; id: string; text: string }
   | { type: "BLOCKER_RESOLVED"; id: string }

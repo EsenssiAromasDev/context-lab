@@ -98,3 +98,36 @@ test("only credits checks whose success the exit status proves", () => {
   // quoted operators are not operators.
   assert.deepEqual(detectChecks(`pytest -k "a or b" && echo "x | y"`), ["tests"])
 })
+
+test("shell changes measured by git become FILE_CHANGED after the check", () => {
+  const events = mapToolCall("Bash", { command: "npx eslint --fix ." }, { kind: "ok" }, ctx, {
+    kind: "files",
+    top: "/work",
+    paths: ["proj/src/a.ts", "other/x.ts", "proj/.claudeos/state.json"],
+  })
+  assert.deepEqual(events, [
+    { type: "CHECK_RAN", kind: "lint", result: { status: "passed", command: "npx eslint --fix .", at: 42 }, at: 42 },
+    // Only inside the project, never our own state, and after the check.
+    { type: "FILE_CHANGED", path: "src/a.ts", at: 43 },
+  ])
+})
+
+test("without git, a non-check command is an unattributed change; a pure check is not", () => {
+  const unknown = { kind: "unknown" } as const
+  assert.deepEqual(mapToolCall("Bash", { command: "sed -i s/a/b/ src/a.ts" }, { kind: "ok" }, ctx, unknown), [
+    { type: "WORKTREE_CHANGED", reason: "sed -i s/a/b/ src/a.ts", at: 43 },
+  ])
+  const pureCheck = mapToolCall("Bash", { command: "cd app && npm test" }, { kind: "ok" }, ctx, unknown)
+  assert.deepEqual(pureCheck.map((e) => e.type), ["CHECK_RAN"])
+  const mixed = mapToolCall("Bash", { command: "npm test && npm run format" }, { kind: "ok" }, ctx, unknown)
+  assert.deepEqual(mixed.map((e) => e.type), ["CHECK_RAN", "WORKTREE_CHANGED"])
+})
+
+test("a failed shell command still records what it changed", () => {
+  const events = mapToolCall("Bash", { command: "./migrate.sh" }, { kind: "error" }, ctx, {
+    kind: "files",
+    top: "/work/proj",
+    paths: ["db/schema.sql"],
+  })
+  assert.deepEqual(events, [{ type: "FILE_CHANGED", path: "db/schema.sql", at: 43 }])
+})

@@ -83,6 +83,17 @@ test("SHIP_APPROVED reaches done only with fresh passing evidence and no blocker
   assert.equal(ok.phase, "done")
 })
 
+test("an unattributed worktree change stales evidence without inventing a path", () => {
+  const s = reduceAll(fresh(), [
+    { type: "CHECK_RAN", kind: "tests", result: pass(5), at: 5 },
+    { type: "SHIP_APPROVED", required: [], at: 6 },
+    { type: "WORKTREE_CHANGED", reason: "make fmt", at: 7 },
+  ])
+  assert.equal(s.phase, "implementing")
+  assert.deepEqual(s.changedFiles, [])
+  assert.deepEqual(shipReadiness(s, ["tests"]).stale, ["tests"])
+})
+
 test("editing after done reopens implementation", () => {
   const s = reduceAll(fresh(), [
     { type: "SHIP_APPROVED", required: [], at: 1 },

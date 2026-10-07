@@ -1,8 +1,9 @@
 import type { EngineInterface, Register } from "claude-code"
 import type { ClaudeOSEvent } from "../../core/events.ts"
 import { openSession, type Session } from "../../core/session.ts"
-import { mapToolCall, type ToolOutcome } from "./mapper.ts"
+import { mapToolCall, type ShellChanges, type ToolOutcome } from "./mapper.ts"
 import { RuntimeStore, type RuntimeFs } from "./runtime-store.ts"
+import { changedSince, snapshot, type Git, type Snapshot } from "./worktree.ts"
 
 // Claude Code adapter v0: real host events → ClaudeOSEvents → core reducer,
 // persisted under <project>/.claudeos/ through $.fs.
@@ -10,6 +11,8 @@ import { RuntimeStore, type RuntimeFs } from "./runtime-store.ts"
 //   session.start   → SESSION_STARTED (state restored from disk first)
 //   tool.call       → FILE_CHANGED (Edit, Write, NotebookEdit)
 //                     CHECK_RAN    (Bash/PowerShell running tests, lint, ...)
+//                     FILE_CHANGED / WORKTREE_CHANGED for what a shell
+//                     command changed on disk (git content diff)
 //   session.end     → CHECKPOINT
 //
 // No UI yet. Every rule about what counts as "done" stays in core/.
@@ -32,6 +35,8 @@ export const register: Register = (on) => {
   })
 
   on("tool.call", async ($, e, next) => {
+    const measure = (e.tool === "Bash" || e.tool === "PowerShell") && e.run_in_background !== true
+    const before = measure ? await worktree($) : null
     const ran = await next(e)
     const outcome: ToolOutcome =
       ran.deny !== undefined
@@ -39,8 +44,10 @@ export const register: Register = (on) => {
         : ran.isError
           ? { kind: "error", interrupted: isInterrupted(ran.text) }
           : { kind: "ok", result: ran.result }
+    const changes: ShellChanges =
+      !measure || ran.deny !== undefined || ran.isReadOnly ? { kind: "none" } : await shellChanges($, before)
     const { tool, ...input } = e
-    await dispatch($, (root, at) => mapToolCall(String(tool), input, outcome, { root, at }))
+    await dispatch($, (root, at) => mapToolCall(String(tool), input, outcome, { root, at }, changes))
     return ran
   })
 
@@ -77,6 +84,33 @@ async function current($: EngineInterface): Promise<Open> {
   const store = new RuntimeStore(fs, root, () => now)
   open = { root, session: openSession(store, root, now) }
   return open
+}
+
+/** Worktree before a shell command; null means "no git here" (or git failed). */
+async function worktree($: EngineInterface): Promise<Snapshot | null> {
+  try {
+    const { root } = await current($)
+    return await snapshot(gitVia($), root)
+  } catch {
+    return null
+  }
+}
+
+async function shellChanges($: EngineInterface, before: Snapshot | null): Promise<ShellChanges> {
+  if (!before) return { kind: "unknown" }
+  try {
+    const paths = await changedSince(gitVia($), before)
+    return paths ? { kind: "files", top: before.top, paths } : { kind: "unknown" }
+  } catch {
+    return { kind: "unknown" }
+  }
+}
+
+function gitVia($: EngineInterface): Git {
+  return async (args, cwd, stdin) => {
+    const r = await $.process.run(["git", ...args], stdin === undefined ? { cwd } : { cwd, stdin })
+    return { exitCode: r.exitCode, stdout: r.stdout }
+  }
 }
 
 function isInterrupted(text: string | undefined): boolean {

@@ -26,11 +26,23 @@ const EDIT_TOOLS: Record<string, string> = {
 
 const SHELL_TOOLS = new Set(["Bash", "PowerShell"])
 
+/**
+ * What a shell command did to the worktree, as the hooks module measured it.
+ *   files    git diffed content before/after; paths relative to `top`
+ *   unknown  no git (or git failed): files may have changed
+ *   none     the engine says the command was read-only, or it was not measured
+ */
+export type ShellChanges =
+  | { kind: "files"; top: string; paths: readonly string[] }
+  | { kind: "unknown" }
+  | { kind: "none" }
+
 export function mapToolCall(
   tool: string,
   input: Readonly<Record<string, unknown>>,
   outcome: ToolOutcome,
   ctx: MapContext,
+  changes: ShellChanges = { kind: "none" },
 ): ClaudeOSEvent[] {
   const pathKey = EDIT_TOOLS[tool]
   if (pathKey !== undefined) {
@@ -48,12 +60,38 @@ export function mapToolCall(
     if (typeof command !== "string" || outcome.kind === "denied") return []
     if (input.run_in_background === true || isBackgrounded(outcome)) return []
     const kinds = detectChecks(command)
-    if (kinds.length === 0) return []
     const result: CheckResult = { status: checkStatus(outcome), command, at: ctx.at }
-    return kinds.map((kind) => ({ type: "CHECK_RAN", kind, result, at: ctx.at }))
+    const checks: ClaudeOSEvent[] = kinds.map((kind) => ({ type: "CHECK_RAN", kind, result, at: ctx.at }))
+    // We cannot tell whether files changed before or after the check ran
+    // (`eslint --fix`, a test updating snapshots), so changes are recorded
+    // after it: the evidence goes stale, and a clean re-run makes it fresh.
+    return [...checks, ...shellChangeEvents(command, changes, ctx.root, ctx.at + 1)]
   }
 
   return []
+}
+
+function shellChangeEvents(command: string, changes: ShellChanges, root: string, at: number): ClaudeOSEvent[] {
+  if (changes.kind === "none") return []
+  if (changes.kind === "unknown") {
+    // Without git a pure check run would stale its own evidence every time
+    // and nothing could ever ship; assume checks do not edit sources.
+    return isOnlyChecks(command) ? [] : [{ type: "WORKTREE_CHANGED", reason: command, at }]
+  }
+  const top = changes.top.replace(/[\\/]+$/, "")
+  const events: ClaudeOSEvent[] = []
+  for (const p of changes.paths) {
+    const path = projectRelative(`${top}/${p}`, root)
+    if (path !== null && !isOwnState(path)) events.push({ type: "FILE_CHANGED", path, at })
+  }
+  return events
+}
+
+/** Every simple command in the line is a recognized check (cd/env aside). */
+function isOnlyChecks(command: string): boolean {
+  const parts = splitUnquoted(command.trim(), SEQUENCE).flatMap((g) => splitUnquoted(g, AND))
+  const meaningful = parts.filter((p) => !/^\s*cd\s/.test(p))
+  return meaningful.length > 0 && meaningful.every((p) => classify(p) !== null)
 }
 
 function checkStatus(outcome: Exclude<ToolOutcome, { kind: "denied" }>): CheckResult["status"] {
@@ -193,6 +231,7 @@ function* unquotedIndices(text: string): Generator<number> {
 export function projectRelative(path: string, root: string): string | null {
   const p = slashes(path)
   const r = slashes(root).replace(/\/+$/, "")
+  if (p === r) return null
   const isAbsolute = /^([A-Za-z]:)?\//.test(p)
   if (!isAbsolute) return p.replace(/^(\.\/)+/, "") || null
 
