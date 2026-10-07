@@ -62,6 +62,21 @@ export interface SessionUsageSnapshot {
   measuredAt: number
 }
 
+/** Mirrors hooks/analysis/issue-engine.ts: locations and evidence, never file contents. */
+export interface ContextIssue {
+  id: string
+  type: "duplicate" | "lexical-overlap" | "stale-reference" | "discoverable" | "large-always-on"
+  severity: "info" | "low" | "medium" | "high"
+  evidence: "observed" | "deterministic" | "inferred" | "experimental"
+  nodeIds: string[]
+  title: string
+  explanation: string
+  locations: string[]
+  details: { label: "OBSERVED" | "DETERMINISTIC" | "SIZE" | "EXPERIMENTAL" | "SOURCE"; text: string }[]
+  estimatedSavings?: number
+  requiresEval: boolean
+}
+
 export interface AgentRecord {
   toolUseId: string
   agentId?: string
@@ -85,6 +100,10 @@ declare module "claude-code" {
       seen: Record<string, number>
       /** Subagents spawned this session: topology only, never their prompts. */
       agents: AgentRecord[]
+      /** The pane's view (SPEC §21). */
+      view: "overview" | "tree" | "issues" | "experiments"
+      /** The analyzers' last findings; null until they ran this session. */
+      issues: ContextIssue[] | null
       /** Canonical project root whose stored telemetry is merged into `graph`. */
       loadedFor: string | null
     }

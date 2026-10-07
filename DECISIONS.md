@@ -100,6 +100,14 @@ keep structure, never the task prompt or description (conversation content, SPEC
 Verified live: `skill.prompt` 20 ms (keybindings-help body ~3.7k tokens), `agent.spawn`
 121 ms including the subagent's start.
 
+## D-017 — The pane keeps the profile out of the model's context
+
+A command's `text` is a transcript row the model also reads. Printing a context profile there
+would add context to measure context. With a surface, `/context-lab` opens the pane and
+returns one line; only headless runs (no surface to draw on) get the full text. The pane's
+tabs are hotkeyed Buttons; analysis runs on open, on `r`, and the first time `i` is pressed,
+never inside a render (render hooks may not write state).
+
 ## D-012 — Evidence marks are per context
 
 `node.evidence` is the strongest level ever seen (history across sessions). What the tree

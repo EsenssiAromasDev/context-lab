@@ -5,12 +5,14 @@ import {
   NESTED_SEEN,
   NESTED_UNATTRIBUTED,
   PENDING,
+  TABS,
+  isPaneView,
+  openedLine,
+  paneLines,
   parseArgs,
+  type PaneView,
   renderDoctor,
   renderHelp,
-  renderIssues,
-  renderOverview,
-  renderTree,
   type DoctorFacts,
 } from "./commands/context-lab.ts"
 import { parseAnalysisConfig } from "./analysis/config.ts"
@@ -61,6 +63,10 @@ const usageAtom = atom({ plugin: "context-lab", key: "usage" } as const, null)
 const seenAtom = atom({ plugin: "context-lab", key: "seen" } as const, {})
 const loadedForAtom = atom({ plugin: "context-lab", key: "loadedFor" } as const, null)
 const agentsAtom = atom({ plugin: "context-lab", key: "agents" } as const, [])
+const viewAtom = atom({ plugin: "context-lab", key: "view" } as const, "overview")
+const issuesAtom = atom({ plugin: "context-lab", key: "issues" } as const, null)
+
+const PANE = "context-lab"
 
 // Cross-session telemetry in $.store, per project. Bump the version when the
 // stored graph's shape changes; older entries are then ignored.
@@ -146,20 +152,17 @@ export const register: Register = (on) => {
     const parsed = parseArgs(e.args)
     try {
       await Promise.allSettled([...inFlight])
-      if (parsed.view === "overview" || parsed.view === "tree" || parsed.view === "issues") {
-        await ensureLoaded($)
-        if (parsed.view !== "issues") await measureNow($, undefined)
-        if (parsed.view === "tree") await scanAvailable($)
-        const graph = await read($, graphAtom)
-        if (parsed.view === "issues") return { text: renderIssues(await findIssues($), graph) }
-        const input = {
-          graph,
-          usage: (await read($, usageAtom)) ?? undefined,
-          root: await $.session.root(),
-          agents: await read($, agentsAtom),
-          ...(parsed.view === "overview" && graph.contexts > 0 ? { issues: await findIssues($) } : {}),
+      if (isPaneView(parsed.view)) {
+        const view = parsed.view
+        await refresh($, view === "tree")
+        await update($, viewAtom, () => view)
+        // Where a surface draws, the pane shows it and the transcript (which
+        // the model reads) gets one line; headless, the text is the answer.
+        if ((await $.session.surfaces()).length > 0) {
+          const opened = await $.ui.open({ id: PANE, title: "Context Lab", focus: true, closeOnEscape: true })
+          if (opened.isPlaced) return { text: openedLine(view) }
         }
-        return { text: parsed.view === "tree" ? renderTree(input) : renderOverview(input) }
+        return { text: paneLines(view, await viewInput($)).join("\n") }
       }
       if (parsed.view === "doctor") return { text: renderDoctor(await probe($)) }
       const pending = PENDING[parsed.view]
@@ -167,6 +170,36 @@ export const register: Register = (on) => {
     } catch (err) {
       return { text: `Context Lab error: ${message(err)}` }
     }
+  })
+
+  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const view = await read($, viewAtom)
+    const lines = paneLines(view, await viewInput($))
+    return (
+      <Box flexDirection="column">
+        <Box flexDirection="row">
+          {TABS.map((tab) => (
+            <Button
+              key={`tab-${tab.view}`}
+              hotkey={tab.hotkey}
+              variant={tab.view === view ? "primary" : "secondary"}
+              onPress={() => selectView($, tab.view)}
+            >
+              {tab.label}
+            </Button>
+          ))}
+          <Button key="refresh" hotkey="r" onPress={() => refreshPane($)}>
+            Refresh
+          </Button>
+        </Box>
+        {lines.map((line) => (
+          <Text bold={isHeading(line)} dimColor={isQuiet(line)}>
+            {line.length > 0 ? line : " "}
+          </Text>
+        ))}
+      </Box>
+    )
   })
 }
 
@@ -187,7 +220,7 @@ async function persist($: EngineInterface, graph: ContextGraph): Promise<void> {
 
 function track(work: Promise<void>): void {
   inFlight.add(work)
-  void work.finally(() => inFlight.delete(work))
+  void work.catch(() => undefined).finally(() => inFlight.delete(work))
 }
 
 async function recordContext($: EngineInterface, result: ContextPayload): Promise<void> {
@@ -390,6 +423,56 @@ async function findIssues($: EngineInterface): Promise<ContextIssue[]> {
     })
   }
   return analyze(input, existing)
+}
+
+/** Brings the figures up to date: usage, the analyzers, and with `scan` the repository listing. */
+async function refresh($: EngineInterface, scan: boolean): Promise<void> {
+  await ensureLoaded($)
+  await measureNow($, undefined)
+  if (scan) await scanAvailable($)
+  if ((await read($, graphAtom)).contexts > 0) {
+    const issues = await findIssues($)
+    await update($, issuesAtom, () => issues)
+  }
+}
+
+async function viewInput($: EngineInterface) {
+  const issues = await read($, issuesAtom)
+  return {
+    graph: await read($, graphAtom),
+    usage: (await read($, usageAtom)) ?? undefined,
+    root: await $.session.root(),
+    agents: await read($, agentsAtom),
+    ...(issues === null ? {} : { issues }),
+  }
+}
+
+/** A tab's key: switches the view; tree and issues fetch what they show when missing. */
+async function selectView($: EngineInterface, view: PaneView): Promise<void> {
+  await update($, viewAtom, () => view)
+  try {
+    if (view === "tree") await scanAvailable($)
+    if (view === "issues" && (await read($, issuesAtom)) === null) await refresh($, false)
+  } catch (err) {
+    debug($, "pane", err)
+  }
+}
+
+async function refreshPane($: EngineInterface): Promise<void> {
+  try {
+    await Promise.allSettled([...inFlight])
+    await refresh($, true)
+  } catch (err) {
+    debug($, "pane", err)
+  }
+}
+
+function isHeading(line: string): boolean {
+  return /^[A-Z][A-Z ()—-]{3,}$/.test(line) || /^\[\d+\] /.test(line)
+}
+
+function isQuiet(line: string): boolean {
+  return line.startsWith("● observed") || /^\s*\(/.test(line) || line.startsWith("Findings are candidates")
 }
 
 async function readText($: EngineInterface, path: string): Promise<string | undefined> {

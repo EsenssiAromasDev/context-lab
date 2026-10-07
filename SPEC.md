@@ -515,7 +515,12 @@ HIGHER SIGNAL / CONTEXT may improve agent performance.
 
 ## 21–23. UI
 
-`/context-lab` opens a pane (Phase 5; until then the command prints the same views as text).
+`/context-lab [overview|tree|issues|experiments]` opens the pane on that view (`$.ui.open`
+with `focus` and `closeOnEscape`; drawn by `ui.render` on `Pane`). Tabs are Buttons with
+hotkeys `o` `t` `i` `e`, plus `r` to refresh (usage, repository scan, analyzers). While a
+surface draws, the command leaves one line in the transcript — the profile itself never
+enters the model's context. Headless (`claude -p`, no surface) it answers with the full text.
+The view and the last findings live in `$.state`; render hooks only read.
 Plain terminal UI only. No browser, no images. Must work on macOS, Linux and Windows
 terminals. Views: Overview `[o]`, Tree `[t]`, Issues `[i]`, Experiments `[e]`. Legend always
 visible: `● observed  ◐ inferred  ○ available`.
@@ -677,7 +682,7 @@ Build in this order. Each phase's acceptance gate must pass before the next.
 | 2b Nested | `prompt.attachment` nested_memory + `$.fs.ancestors` inference + bounded available scan | nested fixture behaves per §44 | done; verified live on 2.1.291 |
 | 3 Usage | `session.measure`, usage snapshot, engine per-file estimates; skills/agents observers | overview shows real context use | done; skill.prompt and agent.spawn verified live |
 | 4 Analyzers | duplicates, lexical overlap, stale paths, discoverable, large always-on | fixture tests pass, zero LLM calls | done; dogfooded on 8 local repos |
-| 5 UI | Overview / Tree / Issues pane | — | todo |
+| 5 UI | Overview / Tree / Issues pane | — | done (harness: terminal + desktop); verify interactively |
 | 6 Reports | `/context-lab report` | — | todo |
 | 7 Eval harness | init, schemas, clean-git guard, worktrees, grader, trials, statistics, experiment UI | — | todo |
 | 8 Dogfood | profile this repo, one variant, baseline vs variant, results in README | — | todo |

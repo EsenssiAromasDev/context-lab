@@ -20,6 +20,8 @@ interface WorldOptions {
   failUsage?: boolean
   /** The project's files, relative to ROOT. */
   disk?: Record<string, string>
+  /** Where the session draws; none (a -p run) by default. */
+  surfaces?: ("terminal" | "desktop")[]
 }
 
 /** The engine hands $.fs native paths (C:\work\proj\... on Windows). */
@@ -59,6 +61,8 @@ function world(on: On, opts: WorldOptions = {}): World {
   let usage: unknown = { startedAt: 100, context: { window: 200_000 }, rateLimits: [] }
   on("session.start", ($, e) => ({ cwd: e.cwd }))
   on("session.root", () => ({ value: ROOT }))
+  on("session.surfaces", () => ({ value: opts.surfaces ?? [] }))
+  on("ui.open", () => ({ value: { isPlaced: true as const } }))
   on("session.usage", () => {
     if (opts.failUsage) throw new Error("usage unavailable")
     return { value: usage as never }
@@ -405,4 +409,71 @@ test("subagents: topology in the tree, prompts never kept, denials counted", asy
   expect(tree).toContain("(DENIED)")
   expect(await run($, "doctor")).toMatch(/agent\.spawn\s+✓ observed ×3/)
   expect(JSON.stringify([...w.store.values()]).includes("PROMPT-SECRET")).toBe(false)
+})
+
+// Phase 5 — the pane (SPEC §21–23).
+
+const paneProps = {
+  title: "Context Lab",
+  isFocused: true,
+  bodyColumns: 100,
+  placement: "dock" as const,
+  scroll: { offset: 0, bodyRows: 40 },
+  view: {},
+}
+
+const mountPane = ($: Engine, surface: "terminal" | "desktop") =>
+  $.ui.mount({ plugin: "context-lab", surface, component: "Pane", props: paneProps, requestId: "context-lab" })
+
+for (const surface of ["terminal", "desktop"] as const) {
+  test(`pane (${surface}): /context-lab opens it, one line in the transcript, keys switch views`, async ($, on) => {
+    world(on, { surfaces: [surface], disk: { "CLAUDE.md": "x", "src/a.ts": "x" } })
+    await start($)
+    await $.prompt.context({
+      blocks: [],
+      instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nSee `src/missing.ts`.\n" }],
+    })
+    const line = await run($)
+    expect(line).toBe("Context Lab opened on overview. Keys in the pane: o overview, t tree, i issues, e experiments, r refresh, Esc close.")
+
+    const ui = await mountPane($, surface)
+    expect((await ui.find({ key: "tab-overview" }))?.text).toContain("Overview")
+    expect(JSON.stringify(await ui.drawn())).toContain("CONTEXT LAB")
+    expect(JSON.stringify(await ui.drawn())).toMatch(/LOW\s+1/)
+
+    await ui.press({ key: "tab-tree" })
+    expect(JSON.stringify(await ui.drawn())).toContain("SESSION CONTEXT")
+
+    await ui.press({ key: "tab-issues" })
+    const issues = JSON.stringify(await ui.drawn())
+    expect(issues).toContain("CONTEXT ISSUES")
+    expect(issues).toContain("References src/missing.ts, which does not exist.")
+
+    await ui.press({ key: "tab-experiments" })
+    expect(JSON.stringify(await ui.drawn())).toContain("No experiments yet")
+  })
+}
+
+test("pane: refresh re-runs the analyzers on what was observed since", async ($, on) => {
+  world(on, { surfaces: ["terminal"], disk: { "CLAUDE.md": "x", "src/a.ts": "x" } })
+  await start($)
+  await $.prompt.context({ blocks: [], instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nclean\n" }] })
+  await run($, "issues")
+  const ui = await mountPane($, "terminal")
+  expect(JSON.stringify(await ui.drawn())).toContain("No issues found")
+
+  await $.prompt.context({
+    blocks: [],
+    instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nSee `src/gone.ts`.\n" }],
+  })
+  await ui.press({ key: "refresh" })
+  expect(JSON.stringify(await ui.drawn())).toContain("References src/gone.ts")
+})
+
+test("headless (no surface): /context-lab answers with the full text, no pane", async ($, on) => {
+  world(on)
+  await start($)
+  await $.prompt.context({ blocks: [], instructionFiles: files })
+  expect(await run($)).toContain("CONTEXT LAB")
+  expect(await run($, "experiments")).toContain("No experiments yet")
 })

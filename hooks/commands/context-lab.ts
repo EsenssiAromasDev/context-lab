@@ -21,7 +21,7 @@ import type { SessionUsageSnapshot } from "../metrics/usage.ts"
 
 export const MIN_VERSION = "2.1.287"
 
-export type View = "overview" | "tree" | "issues" | "init" | "report" | "eval" | "doctor" | "help"
+export type View = "overview" | "tree" | "issues" | "experiments" | "init" | "report" | "eval" | "doctor" | "help"
 
 export interface Parsed {
   view: View
@@ -31,7 +31,21 @@ export interface Parsed {
   unknown?: string
 }
 
-const VIEWS = new Set<View>(["overview", "tree", "issues", "init", "report", "eval", "doctor", "help"])
+const VIEWS = new Set<View>(["overview", "tree", "issues", "experiments", "init", "report", "eval", "doctor", "help"])
+
+/** The views the pane shows, in tab order, with the key that switches to each (SPEC §21). */
+export type PaneView = "overview" | "tree" | "issues" | "experiments"
+
+export const TABS: readonly { view: PaneView; label: string; hotkey: string }[] = [
+  { view: "overview", label: "Overview", hotkey: "o" },
+  { view: "tree", label: "Tree", hotkey: "t" },
+  { view: "issues", label: "Issues", hotkey: "i" },
+  { view: "experiments", label: "Experiments", hotkey: "e" },
+]
+
+export function isPaneView(view: View): view is PaneView {
+  return TABS.some((t) => t.view === view)
+}
 
 export function parseArgs(args: string): Parsed {
   const [word, ...rest] = args.trim().split(/\s+/).filter(Boolean)
@@ -230,9 +244,10 @@ export function renderHelp(p: Parsed): string {
   const lines: string[] = []
   if (p.unknown) lines.push(`Unknown view "${p.unknown}".`, "")
   lines.push(
-    "/context-lab              overview of the context Claude receives",
+    "/context-lab              overview of the context Claude receives (opens the pane)",
     "/context-lab tree         the context architecture (observed / inferred / available)",
     "/context-lab issues       evidence-backed findings",
+    "/context-lab experiments  baseline vs variant results",
     "/context-lab doctor       what this Claude Code exposes to Context Lab",
     "/context-lab init         create .context-lab/ for evals",
     "/context-lab report       write a report to .context-lab/reports/",
@@ -297,4 +312,23 @@ export function renderIssues(issues: readonly ContextIssue[], graph: ContextGrap
   })
   lines.push("Findings are candidates, not verdicts. Nothing is changed automatically.")
   return lines.join("\n")
+}
+
+export const EXPERIMENTS_PENDING =
+  "No experiments yet. The eval harness (baseline vs context variant in isolated git worktrees) arrives in Phase 7 (SPEC §26–36)."
+
+/** The body of one pane view, as lines; the same text the command prints headless. */
+export function paneLines(view: PaneView, input: ViewInput): string[] {
+  if (view === "tree") return renderTree(input).split("\n")
+  if (view === "issues") {
+    if (input.issues === undefined && input.graph.contexts > 0) return ["Not analyzed yet: press r to run the analyzers."]
+    return renderIssues(input.issues ?? [], input.graph).split("\n")
+  }
+  if (view === "experiments") return ["EXPERIMENTS", "", EXPERIMENTS_PENDING]
+  return renderOverview(input).split("\n")
+}
+
+/** The one line a command leaves in the transcript when the pane shows the view. */
+export function openedLine(view: PaneView): string {
+  return `Context Lab opened on ${view}. Keys in the pane: ${TABS.map((t) => `${t.hotkey} ${t.label.toLowerCase()}`).join(", ")}, r refresh, Esc close.`
 }

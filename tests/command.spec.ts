@@ -64,3 +64,15 @@ test("compareVersions", () => {
   assert.ok(compareVersions("2.1.280-dev.20260920", "2.1.287") < 0)
   assert.equal(compareVersions("2.1.287", "2.1.287"), 0)
 })
+
+test("pane views: same text as headless, honest placeholders, one transcript line", async () => {
+  const { paneLines, openedLine, TABS } = await import("../hooks/commands/context-lab.ts")
+  const input = { graph: emptyGraph(), usage: undefined, root: "/p" }
+  assert.deepEqual(paneLines("overview", input), renderOverview(input).split("\n"))
+  assert.match(paneLines("issues", input).join("\n"), /Nothing observed yet/)
+  const observed = observeContext(emptyGraph(), { blocks: [], instructionFiles: [] }, { at: 1 })
+  assert.deepEqual(paneLines("issues", { ...input, graph: observed }), ["Not analyzed yet: press r to run the analyzers."])
+  assert.match(paneLines("experiments", input).join("\n"), /Phase 7/)
+  assert.deepEqual(TABS.map((t) => t.hotkey), ["o", "t", "i", "e"])
+  assert.equal(openedLine("tree").split("\n").length, 1)
+})

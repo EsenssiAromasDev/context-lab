@@ -15,15 +15,20 @@ The full V1 specification is [SPEC.md](SPEC.md). Design decisions: [DECISIONS.md
 | 2b Nested files (attached ● / inferred ◐ / available ○) | done | verified live on 2.1.291 |
 | 3 Usage, skills (`skill.prompt`), subagents (`agent.spawn`) | done | verified live on 2.1.291 |
 | 4 Analyzers (duplicates, lexical overlap, stale paths, discoverable, large always-on) | done | deterministic, zero model calls |
-| 5 Pane UI · 6 Reports · 7 Eval · 8 Dogfood | todo | |
+| 5 Pane UI (o/t/i/e tabs, r refresh, Esc close) | done | |
+| 6 Reports · 7 Eval · 8 Dogfood | todo | |
 
 ## Use
 
 ```text
-/context-lab            overview: context used, always-on instructions with ~sizes
-/context-lab tree       architecture by tier, imports nested, ● observed ◐ inferred ○ available
-/context-lab issues     evidence-backed findings: duplicates, overlap, stale paths, listings, size
-/context-lab doctor     what this Claude Code build exposes, git state, readiness
+/context-lab            opens the pane — keys: o overview · t tree · i issues · e experiments · r refresh · Esc
+/context-lab <view>     opens the pane on that view (headless -p: prints it instead)
+
+Views:
+overview                context used, always-on instructions with ~sizes
+tree                    architecture by tier, imports nested, ● observed ◐ inferred ○ available
+issues                  evidence-backed findings: duplicates, overlap, stale paths, listings, size
+/context-lab doctor     (text) what this Claude Code build exposes, git state, readiness
 ```
 
 Requires Claude Code >= 2.1.287 (developed on 2.1.291).
