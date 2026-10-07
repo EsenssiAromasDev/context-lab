@@ -1,0 +1,13 @@
+id: overlap-label
+
+prompt: |
+  In hooks/analysis/duplicates.ts, add an exported function
+  `overlapLabel(jaccard: number, thresholds: OverlapThresholds = DEFAULT_OVERLAP): "high" | "medium" | null`
+  that returns "high" at or above thresholds.high, "medium" at or above thresholds.medium,
+  and null below. Use it inside lexicalOverlaps instead of the inline comparison, without
+  changing lexicalOverlaps' results.
+
+grader:
+  argv: [node, --test, .context-lab/evals/graders/overlap-label.spec.ts, "tests/*.spec.ts"]
+
+timeout_seconds: 480

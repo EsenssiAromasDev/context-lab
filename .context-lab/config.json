@@ -1,0 +1,19 @@
+{
+  "largeSectionEstimatedTokens": 1000,
+  "overlapHigh": 0.85,
+  "overlapMedium": 0.7,
+  "discoverableMinRatio": 0.8,
+  "trialsPerTask": 1,
+  "maxAcceptedQualityRegressionPp": 3,
+  "minContextReductionPercent": 10,
+  "minTasksForSupport": 20,
+  "bootstrapIterations": 2000,
+  "seed": 1,
+  "model": "haiku",
+  "claudeArgs": [
+    "--permission-mode",
+    "acceptEdits",
+    "--strict-mcp-config"
+  ],
+  "graderTimeoutSeconds": 600
+}

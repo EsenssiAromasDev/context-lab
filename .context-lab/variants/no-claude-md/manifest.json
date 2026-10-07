@@ -1,0 +1,9 @@
+{
+  "name": "no-claude-md",
+  "description": "Does this repository's CLAUDE.md earn its cost? The same tasks without it.",
+  "createdFrom": "feat/context-lab",
+  "changes": [
+    { "file": "CLAUDE.md", "reason": "removed entirely: measure what the always-on project instructions contribute" }
+  ],
+  "delete": ["CLAUDE.md"]
+}

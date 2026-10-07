@@ -1,0 +1,14 @@
+# Copy to <id>.yaml to enable it. Files ending .yaml/.yml/.json here are eval tasks.
+id: example-task
+
+prompt: |
+  Describe the change Claude should make, as you would in a session.
+  Be specific about the expected behavior.
+
+grader:
+  # Runs in the trial's worktree, without a shell (no pipes, &&, redirections).
+  # Exit code 0 = success. Files under .context-lab/evals/graders/ are copied
+  # into the worktree just before grading (hidden from Claude while it works).
+  command: "npm test"
+
+timeout_seconds: 600

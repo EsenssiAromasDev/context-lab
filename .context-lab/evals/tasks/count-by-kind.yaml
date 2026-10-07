@@ -1,0 +1,11 @@
+id: count-by-kind
+
+prompt: |
+  Add an exported selector `countByKind(graph: ContextGraph): Partial<Record<ContextKind, number>>`
+  to hooks/graph/graph-selectors.ts. It counts the instruction files of the graph's current
+  context (graph.current) by their kind; kinds with no files are left out.
+
+grader:
+  argv: [node, --test, .context-lab/evals/graders/count-by-kind.spec.ts, "tests/*.spec.ts"]
+
+timeout_seconds: 480

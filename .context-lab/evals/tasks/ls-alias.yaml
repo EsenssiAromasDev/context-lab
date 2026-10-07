@@ -1,0 +1,11 @@
+id: ls-alias
+
+prompt: |
+  Make `/context-lab ls` an alias of `/context-lab tree`: parseArgs in
+  hooks/commands/context-lab.ts should return { view: "tree" } for "ls" (any case), and list
+  the alias in the help text. Every other argument must parse exactly as before.
+
+grader:
+  argv: [node, --test, .context-lab/evals/graders/ls-alias.spec.ts, "tests/*.spec.ts"]
+
+timeout_seconds: 480

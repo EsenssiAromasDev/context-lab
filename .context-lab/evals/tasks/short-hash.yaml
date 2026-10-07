@@ -1,0 +1,11 @@
+id: short-hash
+
+prompt: |
+  Add an exported function `shortHash(text: string): string` to hooks/metrics/hash.ts that
+  returns the first 12 hexadecimal characters of the SHA-256 of the text, reusing the
+  module's existing sha256. Do not change anything else's behavior.
+
+grader:
+  argv: [node, --test, .context-lab/evals/graders/short-hash.spec.ts, "tests/*.spec.ts"]
+
+timeout_seconds: 480

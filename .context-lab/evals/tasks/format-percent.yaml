@@ -1,0 +1,11 @@
+id: format-percent
+
+prompt: |
+  Add an exported function `formatPercent(ratio: number): string` to hooks/metrics/size.ts.
+  It formats a ratio as a percentage with exactly one decimal: 0.357 → "35.7%", 0 → "0.0%",
+  1 → "100.0%". Do not change anything else's behavior.
+
+grader:
+  argv: [node, --test, .context-lab/evals/graders/format-percent.spec.ts, "tests/*.spec.ts"]
+
+timeout_seconds: 480
