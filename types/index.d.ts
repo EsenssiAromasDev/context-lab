@@ -100,6 +100,8 @@ declare module "claude-code" {
       seen: Record<string, number>
       /** Subagents spawned this session: topology only, never their prompts. */
       agents: AgentRecord[]
+      /** True once the person hid the band above the prompt; /context-lab shows it again. */
+      bandHidden: boolean
       /** The pane's view (SPEC §21). */
       view: "overview" | "tree" | "issues" | "experiments"
       /** The eval in progress, or the latest result, as the Experiments view shows it. */

@@ -545,3 +545,31 @@ test("eval: a clean tree with no .context-lab asks for init", async ($, on) => {
   await start($)
   expect(await run($, "eval compact")).toBe("No .context-lab/ here: run /context-lab init first.")
 })
+
+// The band above the prompt.
+
+const bandProps = { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 120, scroll: { offset: 0, bodyRows: 3 }, view: {} }
+
+for (const surface of ["terminal", "desktop"] as const) {
+  test(`band (${surface}): empty until something is observed, then one line with Open and Hide`, async ($, on) => {
+    const w = world(on, { surfaces: [surface], disk: { "CLAUDE.md": "x" } })
+    // The engine's own band beneath: empty.
+    on("ui.render", { component: "AbovePrompt" }, ($, e) => $.ui.resolve(e).Box({ key: "engine-band" }))
+    await start($)
+    const band = await $.ui.mount({ plugin: "context-lab", surface, component: "AbovePrompt", props: bandProps })
+    expect(await band.find({ key: "cl-open" })).toBeUndefined()
+
+    await $.prompt.context({ blocks: [], instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\n" + "x".repeat(400) }] })
+    w.setUsage({ startedAt: 100, context: { tokens: 71_420, window: 200_000, percent: 36 }, rateLimits: [] })
+    await $.session.measure({ context: { tokens: 71_420, window: 200_000, percent: 36 }, rateLimits: [], changed: ["context"] })
+    await run($, "doctor") // settles the background observations
+    const text = JSON.stringify(await band.drawn())
+    expect(text).toContain("Context Lab · 71.4k/200k (36%) · instructions ~101 in 1 file · no issues")
+    expect(await band.find({ key: "cl-open" })).toBeDefined()
+
+    await band.press({ key: "cl-hide" })
+    expect(await band.find({ key: "cl-open" })).toBeUndefined()
+    await run($) // /context-lab shows the band again
+    expect(await band.find({ key: "cl-open" })).toBeDefined()
+  })
+}

@@ -23,6 +23,9 @@ The full V1 specification is [SPEC.md](SPEC.md). Design decisions: [DECISIONS.md
 ## Use
 
 ```text
+A one-line band above the prompt shows context use, always-on instructions and issues once
+something has been observed (Open shows the pane, Hide hides it until the next /context-lab).
+
 /context-lab            opens the pane — keys: o overview · t tree · i issues · e experiments · r refresh · Esc
 /context-lab <view>     opens the pane on that view (headless -p: prints it instead)
 

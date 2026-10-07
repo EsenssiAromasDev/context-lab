@@ -5,6 +5,7 @@ import {
   NESTED_SEEN,
   NESTED_UNATTRIBUTED,
   TABS,
+  bandLine,
   isPaneView,
   openedLine,
   paneLines,
@@ -71,6 +72,7 @@ const viewAtom = atom({ plugin: "context-lab", key: "view" } as const, "overview
 const issuesAtom = atom({ plugin: "context-lab", key: "issues" } as const, null)
 
 const experimentAtom = atom({ plugin: "context-lab", key: "experiment" } as const, null)
+const bandHiddenAtom = atom({ plugin: "context-lab", key: "bandHidden" } as const, false)
 
 const PANE = "context-lab"
 
@@ -169,10 +171,8 @@ export const register: Register = (on) => {
         await update($, viewAtom, () => view)
         // Where a surface draws, the pane shows it and the transcript (which
         // the model reads) gets one line; headless, the text is the answer.
-        if ((await $.session.surfaces()).length > 0) {
-          const opened = await $.ui.open({ id: PANE, title: "Context Lab", focus: true, closeOnEscape: true })
-          if (opened.isPlaced) return { text: openedLine(view) }
-        }
+        await update($, bandHiddenAtom, () => false)
+        if ((await $.session.surfaces()).length > 0 && (await openPane($))) return { text: openedLine(view) }
         return { text: paneLines(view, await viewInput($)).join("\n") }
       }
       if (parsed.view === "doctor") return { text: renderDoctor(await probe($)) }
@@ -183,6 +183,21 @@ export const register: Register = (on) => {
     } catch (err) {
       return { text: `Context Lab error: ${message(err)}` }
     }
+  })
+
+  // The band above the prompt: what the context holds, at a glance; the pane on demand.
+  on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    if (e.props.hasSurvey || (await read($, bandHiddenAtom))) return next(e)
+    const line = bandLine(await viewInput($))
+    if (line === undefined) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    return (
+      <Box>
+        <Text dimColor>{line} </Text>
+        <Button key="cl-open" label="Open" onPress={() => openPane($)} />
+        <Button key="cl-hide" label="Hide" onPress={() => update($, bandHiddenAtom, () => true)} />
+      </Box>
+    )
   })
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
@@ -245,6 +260,8 @@ async function recordContext($: EngineInterface, result: ContextPayload): Promis
     const sessionId = await sessionKey($)
     const graph = await update($, graphAtom, (g) => observeContext(g, result, { at, sessionId }))
     await persist($, graph)
+    const issues = await findIssues($)
+    await update($, issuesAtom, () => issues)
   } catch (err) {
     debug($, "prompt.context", err)
   }
@@ -624,6 +641,12 @@ async function selectView($: EngineInterface, view: PaneView): Promise<void> {
   } catch (err) {
     debug($, "pane", err)
   }
+}
+
+/** Opens (or raises) the pane; false when the surface could not seat it. */
+async function openPane($: EngineInterface): Promise<boolean> {
+  const opened = await $.ui.open({ id: PANE, title: "Context Lab", focus: true, closeOnEscape: true })
+  return opened.isPlaced
 }
 
 async function refreshPane($: EngineInterface): Promise<void> {

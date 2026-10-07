@@ -332,6 +332,32 @@ export function paneLines(view: PaneView, input: ViewInput): string[] {
   return renderOverview(input).split("\n")
 }
 
+/**
+ * The band above the prompt: one line, or undefined while nothing has been
+ * observed (the band then stays out of the way).
+ */
+export function bandLine(input: ViewInput): string | undefined {
+  const { graph, usage, issues } = input
+  if (graph.contexts === 0 && usage?.contextCapacity === undefined) return undefined
+  const parts = ["Context Lab"]
+  if (usage?.contextCapacity !== undefined) {
+    const used = usage.contextUsed === undefined ? "?" : compactCount(usage.contextUsed)
+    parts.push(`${used}/${compactCount(usage.contextCapacity)}${usage.contextPercent === undefined ? "" : ` (${usage.contextPercent}%)`}`)
+  }
+  if (graph.contexts > 0) {
+    const files = currentInstructions(graph).length + nestedInstructions(graph).length
+    parts.push(`instructions ${approx(instructionTokens(graph) + nestedTokens(graph))} in ${files} file${files === 1 ? "" : "s"}`)
+    if (graph.skills.length) parts.push(`${graph.skills.length} skill${graph.skills.length === 1 ? "" : "s"} active`)
+    if (graph.inferred.length) parts.push(`${MARK.inferred} ${graph.inferred.length} inferred`)
+  }
+  if (issues !== undefined) parts.push(issues.length === 0 ? "no issues" : `${issues.length} issue${issues.length === 1 ? "" : "s"}`)
+  return parts.join(" · ")
+}
+
+function compactCount(n: number): string {
+  return n < 1000 ? String(n) : `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`
+}
+
 /** The one line a command leaves in the transcript when the pane shows the view. */
 export function openedLine(view: PaneView): string {
   return `Context Lab opened on ${view}. Keys in the pane: ${TABS.map((t) => `${t.hotkey} ${t.label.toLowerCase()}`).join(", ")}, r refresh, Esc close.`

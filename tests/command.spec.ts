@@ -76,3 +76,16 @@ test("pane views: same text as headless, honest placeholders, one transcript lin
   assert.deepEqual(TABS.map((t) => t.hotkey), ["o", "t", "i", "e"])
   assert.equal(openedLine("tree").split("\n").length, 1)
 })
+
+test("band line: nothing before observation; usage, instructions, skills, issues after", async () => {
+  const { bandLine } = await import("../hooks/commands/context-lab.ts")
+  assert.equal(bandLine({ graph: emptyGraph(), usage: undefined, root: "/p" }), undefined)
+  const graph = observeContext(
+    emptyGraph(),
+    { blocks: [], instructionFiles: [{ path: "/p/CLAUDE.md", kind: "project", content: "y".repeat(400) }, { path: "/p/a.md", kind: "project", content: "z" }] },
+    { at: 1 },
+  )
+  const usage = { contextUsed: 950, contextCapacity: 200_000, measuredAt: 1 }
+  assert.equal(bandLine({ graph, usage, root: "/p" }), "Context Lab · 950/200k · instructions ~101 in 2 files")
+  assert.equal(bandLine({ graph, usage, root: "/p", issues: [] }), "Context Lab · 950/200k · instructions ~101 in 2 files · no issues")
+})
