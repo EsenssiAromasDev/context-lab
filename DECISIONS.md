@@ -145,6 +145,28 @@ Commands accept Spanish names (resumen, archivos, problemas, experimentos, inici
 informe) as well as the English ones. Evidence levels are kept, in words: confirmado /
 probablemente / existe pero no se ha cargado.
 
+## D-023 — Eval tasks come from the repository's history
+
+The barrier to evidence was that nobody writes eval tasks. Commits that changed code and tests
+already are tasks with graders; calibration (fail before, pass after) keeps only those that can
+tell a good attempt from a bad one. Verified on a real repository (erp_skills: 115 commits read,
+13 candidates checked, 12 kept; this repository: 0 — its commits are whole phases, and its
+harness tests do not run under `node --test`, which `testCommand` exists for).
+
+## D-024 — Mined trials run with today's instructions
+
+The experiment compares instruction sets, not history: a trial at an old commit gets HEAD's
+instruction files (staged, so a variant can `git rm` them). Dependency folders are linked from
+the main checkout and unlinked before the worktree is removed; a link that cannot be removed
+keeps the worktree instead of risking the real folder.
+
+## D-025 — Dated logs are history, not instructions
+
+On erp_skills, 80% of CLAUDE.md (53 entries, ~46k tokens) was a dated log read in every
+conversation. A run of ≥3 headings starting with a date is one finding ("Bitácora con fechas")
+instead of dozens of "large section" warnings, and the proposal moves it to docs/ with one pointer
+line. Proposal on that repository: ~58k → ~12.6k always-on tokens (−78%), before testing.
+
 ## D-012 — Evidence marks are per context
 
 `node.evidence` is the strongest level ever seen (history across sessions). What the tree

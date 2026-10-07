@@ -1,6 +1,7 @@
 import { findListings, isDiscoverable, listingCandidates, scoreListing } from "../analysis/discoverability.ts"
 import { exactDuplicates } from "../analysis/duplicates.ts"
 import { DEFAULT_ANALYSIS, type AnalysisConfig } from "../analysis/issue-engine.ts"
+import { historyBlock } from "../analysis/history.ts"
 import { splitSections, type Section } from "../analysis/sections.ts"
 import { extractPathRefs } from "../analysis/stale-paths.ts"
 import { measure } from "../metrics/size.ts"
@@ -13,7 +14,8 @@ import { instructionsAt, isPathScoped, worktreeBase, type GitInfo } from "./work
 //
 //   1. exact duplicate sections   → keep the first copy
 //   2. discoverable listings      → one line saying Claude can list the files
-//   3. sections about one folder  → moved to .claude/rules/<name>.md with
+//   3. a dated log ("2026-08-12 — …") → moved to docs/, one pointer line left
+//   4. sections about one folder  → moved to .claude/rules/<name>.md with
 //                                   `paths:` so they load only for that folder
 //
 // Optionally (explicit opt-in, it calls a model): large always-on sections are
@@ -21,7 +23,7 @@ import { instructionsAt, isPathScoped, worktreeBase, type GitInfo } from "./work
 
 export interface ProposedChange {
   file: string
-  kind: "duplicate" | "listing" | "path-scoped" | "summarized"
+  kind: "duplicate" | "listing" | "history" | "path-scoped" | "summarized"
   /** Plain description of what changed. */
   what: string
   tokensBefore: number
@@ -164,7 +166,26 @@ export async function propose(host: EvalHost, root: string, info: GitInfo, confi
     }
   }
 
-  // 3. Sections about one folder become path-scoped rules.
+  // 3. A dated log moves to a file of its own, with one line saying where.
+  for (const [path, text] of files) {
+    const h = historyBlock(sectionsByFile.get(path) ?? [])
+    if (!h) continue
+    const spanish = looksSpanish(text)
+    let target = spanish ? "docs/claude-historial.md" : "docs/claude-history.md"
+    if (all.has(target) || (await host.exists(joinPath(root, target)))) target = target.replace(/\.md$/, "-context-lab.md")
+    const lines = text.split(/\r?\n/)
+    const pointer = spanish
+      ? `_(Historial del proyecto movido a ${target}: léelo cuando necesites el contexto de decisiones pasadas.)_`
+      : `_(Project history moved to ${target}: read it when you need the context of past decisions.)_`
+    const ranges = h.ranges.filter((r, i) => add(path, { ...r, replacement: i === 0 ? [pointer, ""] : [] }))
+    if (ranges.length === 0) continue
+    const moved = ranges.map((r) => lines.slice(r.from - 1, r.to).join("\n").trimEnd()).join("\n\n")
+    const title = spanish ? `# Historial del proyecto\n\n_(Movido desde ${path} por Context Lab.)_` : `# Project history\n\n_(Moved from ${path} by Context Lab.)_`
+    newFiles.set(target, `${title}\n\n${moved}\n`)
+    changes.push({ file: path, kind: "history", what: `${ranges.length} entradas con fecha movidas a ${target} (queda una línea que dice dónde)`, tokensBefore: h.estimatedTokens, tokensAfter: measure(pointer).estimatedTokens })
+  }
+
+  // 4. Sections about one folder become path-scoped rules.
   for (const [path] of files) {
     if (path.startsWith(".claude/rules/")) continue
     for (const s of sectionsByFile.get(path) ?? []) {
@@ -180,7 +201,7 @@ export async function propose(host: EvalHost, root: string, info: GitInfo, confi
     }
   }
 
-  // 4. Optional: large always-on sections rewritten shorter by Claude.
+  // 5. Optional: large always-on sections rewritten shorter by Claude.
   if (opts.summarize && opts.claude) {
     for (const [path] of files) {
       for (const s of sectionsByFile.get(path) ?? []) {

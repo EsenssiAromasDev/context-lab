@@ -277,3 +277,74 @@ test("e2e: optimize runs the whole loop and says what to do next", async () => {
   assert.match(text, /2\. PROPUESTA: auto-/)
   assert.match(text, /3\. EXPERIMENTO/)
 })
+
+// ── dated logs ──────────────────────────────────────────────────────────────
+
+const LOG = [
+  "# Proyecto",
+  "",
+  "Reglas que el agente debe seguir siempre en este proyecto de la empresa.",
+  "",
+  "## Bitácora",
+  "",
+  "### 2026-08-01 — unidad 1: arranque del proyecto y primeras decisiones",
+  "Se decidió usar la base de datos para todo el estado del sistema.",
+  "#### Detalle",
+  "El detalle de la decisión que se tomó con todo el equipo.",
+  "### 2026-08-02 — unidad 2: cambios en la evaluación del sistema",
+  "Se cambió la evaluación para que fuese reproducible en todas las máquinas.",
+  "### 2026-08-03 — unidad 3: cierre de la fase y entrega",
+  "Se cerró la fase con todos los tests pasando y el informe entregado.",
+  "",
+  "## Comandos",
+  "",
+  "Ejecuta los tests con pytest antes de cada commit.",
+].join("\n")
+
+test("history: dated entries with their sub-sections, three or more", async () => {
+  const { historyBlock } = await import("../hooks/analysis/history.ts")
+  const sections = splitSections({ nodeId: "n", file: "f", text: LOG })
+  const h = historyBlock(sections)!
+  assert.equal(h.entries, 3)
+  assert.deepEqual(h.ranges, [
+    { from: 7, to: 10 },
+    { from: 11, to: 12 },
+    { from: 13, to: 15 },
+  ])
+  assert.equal(historyBlock(splitSections({ nodeId: "n", file: "f", text: LOG.split("### 2026-08-03")[0]! })), undefined)
+})
+
+test("history: one finding for the whole log, and the proposal moves it out with a pointer", async () => {
+  const { analyze, DEFAULT_ANALYSIS } = await import("../hooks/analysis/issue-engine.ts")
+  const { observeContext } = await import("../hooks/observers/context-observer.ts")
+  const { emptyGraph } = await import("../hooks/graph/graph.ts")
+  const { nodeId } = await import("../hooks/graph/graph-builder.ts")
+  const graph = observeContext(emptyGraph(), { blocks: [], instructionFiles: [{ path: "/r/CLAUDE.md", kind: "project", content: LOG }] }, { at: 1 })
+  const issues = analyze(
+    { graph, sources: [{ nodeId: nodeId("project", "/r/CLAUDE.md"), file: "./CLAUDE.md", text: LOG, fromDisk: true }], root: "/r", config: { ...DEFAULT_ANALYSIS, largeSectionEstimatedTokens: 5 } },
+    new Set(),
+  )
+  const history = issues.filter((i) => i.type === "history-log")
+  assert.equal(history.length, 1)
+  assert.match(history[0]!.explanation, /^3 entradas con fecha/)
+  assert.ok(!issues.some((i) => i.type === "large-always-on" && /2026-08/.test(i.locations[0]!)), "no per-entry size warnings")
+
+  const base = mkdtempSync(join(tmpdir(), "cl-hist-"))
+  dirs.push(base)
+  const root = join(base, "p").replace(/\\/g, "/")
+  mkdirSync(root)
+  writeFileSync(join(root, "CLAUDE.md"), LOG)
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root })
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "add", "-A"], { cwd: root })
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"], { cwd: root })
+  const info = await gitInfo(nodeHost, root)
+  assert.ok(!("error" in info))
+  const p = (await propose(nodeHost, root, info, parseEvalConfig(defaultConfigText())))!
+  assert.ok(p.changes.some((c) => c.kind === "history"))
+  const md = readFileSync(join(p.dir, "files/CLAUDE.md"), "utf8")
+  assert.match(md, /Historial del proyecto movido a docs\/claude-historial\.md/)
+  assert.doesNotMatch(md, /2026-08-0/)
+  assert.match(md, /## Comandos/)
+  const moved = readFileSync(join(p.dir, "files/docs/claude-historial.md"), "utf8")
+  for (const d of ["2026-08-01", "#### Detalle", "2026-08-02", "2026-08-03"]) assert.ok(moved.includes(d), d)
+})

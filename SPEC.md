@@ -786,6 +786,31 @@ prompt.context   session.measure   prompt.attachment / skill.prompt / agent.spaw
 > identify candidates for improvement and use reproducible evidence to determine whether a
 > context architecture is actually better.
 
+## 51b. Optimize (built after V1, on request)
+
+The V2 items "automatic architecture proposals" and "automatic CLAUDE.md → Skill migrations"
+are partly built, under the same rule (§51): nothing is applied without the person's
+confirmation and an experiment behind it.
+
+- **Mining (`hooks/eval/mine.ts`).** A commit is a task when it changes source and tests, has one
+  parent, a descriptive message and ≤12 files / ≤600 lines. The trial starts at the parent; the
+  grader runs the commit's test files, restored from the commit just before grading. Kept only if
+  those tests fail on the parent and pass on the commit (calibration, no model calls). The test
+  runner is detected (pytest, vitest, jest, node --test) or set with `testCommand` (`{files}`).
+- **Trials of mined tasks** run with TODAY's instruction files (synced from HEAD and staged), and
+  the main checkout's `node_modules`/`.venv`/`venv` linked in; links are removed before the
+  worktree, so deleting it can never follow them.
+- **Proposal (`hooks/eval/propose.ts`).** Deterministic: exact duplicates (first copy kept; a file
+  left empty is deleted), discoverable listings (one note line), dated logs (≥3 headings starting
+  `YYYY-MM-DD`, moved to `docs/claude-historial.md` with a pointer line), one-folder sections
+  (moved to `.claude/rules/<scope>-<heading>.md` with `paths: ["<scope>/**"]`). Optional: sections
+  over the large-section threshold rewritten by Claude (`resumir`), kept only if ≥10% shorter.
+  Path-scoped rules do not count as always-on in the experiment's yardstick.
+- **Apply (`hooks/eval/apply.ts`).** Shows files and token deltas and the latest experiment on that
+  variant; applies only with `confirmar`, refuses when the person has uncommitted edits in any
+  file it would touch.
+- **Money.** Experiment results show the measured cost difference per 100 tasks (never estimated).
+
 ## 52. V1 → V2 boundary
 
 Only after V1 works: automatic architecture proposals, LLM-assisted contradiction detection,

@@ -9,6 +9,7 @@ import {
   type DiscoverableBlock,
 } from "./discoverability.ts"
 import { exactDuplicates, lexicalOverlaps } from "./duplicates.ts"
+import { historyBlock } from "./history.ts"
 import { splitSections, type Section, type SourceText } from "./sections.ts"
 import { anchorPaths, candidatePaths, extractPathRefs, staleRefs } from "./stale-paths.ts"
 
@@ -16,7 +17,7 @@ import { anchorPaths, candidatePaths, extractPathRefs, staleRefs } from "./stale
 // actually sent, each finding carrying the evidence it rests on. No model
 // calls, no scores, no recommendation to delete anything without an eval.
 
-export type IssueType = "duplicate" | "lexical-overlap" | "stale-reference" | "discoverable" | "large-always-on"
+export type IssueType = "duplicate" | "lexical-overlap" | "stale-reference" | "discoverable" | "large-always-on" | "history-log"
 export type Severity = "info" | "low" | "medium" | "high"
 export type IssueEvidence = "observed" | "deterministic" | "inferred" | "experimental"
 
@@ -187,8 +188,38 @@ export function analyze(input: AnalysisInput, existing: ReadonlySet<string>): Co
     }
   }
 
+  // A dated log is one finding, not one "large section" per entry.
+  const inHistory = new Set<string>()
+  for (const src of input.sources) {
+    const own = sections.filter((s) => s.nodeId === src.nodeId)
+    const h = historyBlock(own)
+    if (!h) continue
+    for (const s of own) if (h.ranges.some((r) => s.line >= r.from && s.line <= r.to)) inHistory.add(`${s.nodeId}#${s.line}`)
+    const fileTokens = own.reduce((n, s) => n + s.estimatedTokens, 0)
+    const share = fileTokens === 0 ? 0 : Math.round((h.estimatedTokens / fileTokens) * 100)
+    issues.push({
+      id: issueId("history-log", [src.nodeId]),
+      type: "history-log",
+      severity: h.estimatedTokens >= 5000 ? "high" : h.estimatedTokens >= 1000 ? "medium" : "low",
+      evidence: "deterministic",
+      nodeIds: [src.nodeId],
+      title: "Bitácora con fechas que Claude lee siempre",
+      explanation: `${h.entries} entradas con fecha (${approx(h.estimatedTokens)} tokens, el ${share}% del archivo) son historia del proyecto, no instrucciones, y Claude las lee en cada conversación.`,
+      action: "Muévelas a un archivo aparte (p. ej. docs/claude-historial.md) y deja una línea que diga dónde están: Claude lo leerá solo cuando haga falta. /context-lab optimizar lo hace y comprueba que Claude no empeora.",
+      locations: [`${src.file} (${h.entries} secciones que empiezan por una fecha)`],
+      details: [
+        { label: "DETERMINISTIC", text: `${h.entries} encabezados empiezan por una fecha (AAAA-MM-DD).` },
+        { label: "OBSERVED", text: `${loaded(src.nodeId)}.` },
+        { label: "EXPERIMENTAL", text: "Nadie ha probado todavía si quitarla empeora a Claude." },
+      ],
+      estimatedSavings: h.estimatedTokens,
+      requiresEval: true,
+    })
+  }
+
   for (const s of sections) {
     if (s.estimatedTokens < config.largeSectionEstimatedTokens) continue
+    if (inHistory.has(`${s.nodeId}#${s.line}`)) continue
     if (!graph.current.includes(s.nodeId)) continue // always-on only
     issues.push({
       id: issueId("large-always-on", [where(s)]),

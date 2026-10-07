@@ -20,6 +20,25 @@ The full V1 specification is [SPEC.md](SPEC.md). Design decisions: [DECISIONS.md
 | 7 Eval harness (init, worktrees, graders, bootstrap CI, verdicts) | done | end-to-end tested with real git |
 | 8 Dogfood | done | [docs/DOGFOOD.md](docs/DOGFOOD.md): self-profile + baseline vs no-CLAUDE.md |
 
+## What makes it different
+
+Other tools show how many tokens Claude Code uses, or trim prompts and hope for the best.
+Context Lab closes the loop **with proof from your own code**:
+
+1. **Tasks from your git history.** Commits that changed code and its tests become eval tasks:
+   start from the parent commit, ask for the change the message describes, grade with the tests
+   that commit wrote. Kept only if those tests fail before and pass after. Nobody writes a task.
+2. **A proposed trim.** Duplicates removed, folder listings dropped, one-folder sections moved
+   to path-scoped `.claude/rules/`, dated logs moved to `docs/` with a pointer — and, on request,
+   large sections summarized by Claude.
+3. **The proof.** Baseline vs proposal on those tasks, each trial in its own git worktree from
+   the same commit, with today's instructions; measured pass rate, tokens and dollars.
+4. **Apply** only on confirmation, never over uncommitted edits.
+
+```text
+/context-lab optimizar            # or: node scripts/eval.ts optimize
+```
+
 ## Install
 
 ```text

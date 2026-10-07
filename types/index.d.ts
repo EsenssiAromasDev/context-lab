@@ -65,7 +65,7 @@ export interface SessionUsageSnapshot {
 /** Mirrors hooks/analysis/issue-engine.ts: locations and evidence, never file contents. */
 export interface ContextIssue {
   id: string
-  type: "duplicate" | "lexical-overlap" | "stale-reference" | "discoverable" | "large-always-on"
+  type: "duplicate" | "lexical-overlap" | "stale-reference" | "discoverable" | "large-always-on" | "history-log"
   severity: "info" | "low" | "medium" | "high"
   evidence: "observed" | "deterministic" | "inferred" | "experimental"
   nodeIds: string[]
