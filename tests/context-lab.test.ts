@@ -160,11 +160,11 @@ test("prompt.context is observed, passed through untouched, and shown in tree", 
   expect(out.instructionFiles).toEqual(files)
 
   const tree = await run($, "tree")
-  expect(tree).toContain("● USER")
-  expect(tree).toContain("● PROJECT")
+  expect(tree).toContain("TUS INSTRUCCIONES PERSONALES")
+  expect(tree).toContain("INSTRUCCIONES DE ESTE PROYECTO")
   expect(tree).toContain("● ./CLAUDE.md")
   expect(tree).toContain("● ./docs/api.md")
-  expect(tree).toContain("● observed  ◐ inferred  ○ available")
+  expect(tree).toContain("● Claude lo recibe (confirmado)")
   expect(w.logs).toEqual([])
 })
 
@@ -181,8 +181,8 @@ test("overview shows real context use and never persists raw content", async ($,
   await $.session.measure({ context: { tokens: 71_420, window: 200_000, percent: 36 }, rateLimits: [], changed: ["context"] })
 
   const overview = await run($)
-  expect(overview).toContain("71,420 / 200,000")
-  expect(overview).toContain("● ~/.claude/CLAUDE.md")
+  expect(overview).toContain("71.4k de 200k tokens (36%)")
+  expect(overview).toContain("~/.claude/CLAUDE.md")
   expect(overview).toContain("~1.1k")
   expect(overview).toContain("$1.50")
 
@@ -198,7 +198,7 @@ test("each observed context counts one more load per file", async ($, on) => {
   w.setUsage({ startedAt: 200, context: { window: 200_000 }, rateLimits: [] })
   await $.prompt.context({ blocks: [], instructionFiles: files })
   const tree = await run($, "tree")
-  expect(tree).toContain("×2")
+  expect(tree).toContain("visto en 2 conversaciones")
 })
 
 test("doctor reports what was observed and the repository state", async ($, on) => {
@@ -207,10 +207,10 @@ test("doctor reports what was observed and the repository state", async ($, on) 
   await $.prompt.context({ blocks: [], instructionFiles: files })
   const text = await run($, "doctor")
   expect(text).toContain("Claude Code 2.1.291")
-  expect(text).toMatch(/prompt\.context\s+✓ observed ×1/)
-  expect(text).toMatch(/session\.measure\s+hooked, not yet observed/)
-  expect(text).toMatch(/Repository clean\s+✓/)
-  expect(text).toContain("Status: READY")
+  expect(text).toMatch(/instrucciones al empezar\s+✓ 1 vez/)
+  expect(text).toMatch(/uso del contexto\s+todavía no ha ocurrido/)
+  expect(text).toMatch(/Cambios sin commit\s+✓ ninguno/)
+  expect(text).toContain("Estado: LISTO")
 })
 
 test("an observer failure never breaks the engine's answer", async ($, on) => {
@@ -226,8 +226,8 @@ test("an observer failure never breaks the engine's answer", async ($, on) => {
 test("issues before anything is observed says so", async ($, on) => {
   const w = world(on)
   await start($)
-  expect(await run($, "issues")).toContain("Nothing observed yet")
-  expect(await run($, "nope")).toContain('Unknown view "nope"')
+  expect(await run($, "issues")).toContain("Aún no se ha visto nada")
+  expect(await run($, "nope")).toContain('No conozco "nope"')
   expect(w.store.size).toBe(0)
 })
 
@@ -258,15 +258,15 @@ test("nested: available before a Read, inferred after it, observed once attached
   await $.prompt.context(rootContext)
 
   let tree = await run($, "tree")
-  expect(tree).toContain("○ AVAILABLE")
+  expect(tree).toContain("EXISTE EN EL PROYECTO, PERO NO SE HA CARGADO")
   expect(tree).toContain("○ ./src/api/CLAUDE.md")
   expect(tree.includes("node_modules")).toBe(false)
 
   await $.tool.call({ tool: "Read", file_path: `${ROOT}/src/api/service.ts` })
   tree = await run($, "tree")
-  expect(tree).toContain("◐ POSSIBLE NESTED")
+  expect(tree).toContain("PROBABLEMENTE CARGADO")
   expect(tree).toContain("◐ ./src/api/CLAUDE.md")
-  expect(tree).toContain("← src/api/service.ts")
+  expect(tree).toContain("al leer src/api/service.ts")
   expect(tree.includes("○ ./src/api/CLAUDE.md")).toBe(false)
 
   const text = `Contents of ${ROOT}/src/api/CLAUDE.md (project instructions):
@@ -275,12 +275,12 @@ ${NESTED_DISK["src/api/CLAUDE.md"]}`
   const sent = await $.prompt.attachment(attachment(text))
   expect(sent.text).toBe(text)
   tree = await run($, "tree")
-  expect(tree).toContain("● NESTED (attached on read)")
+  expect(tree).toContain("CARGADO AL TRABAJAR EN UNA CARPETA")
   expect(tree).toContain("● ./src/api/CLAUDE.md")
   expect(tree.includes("◐ ./src/api/CLAUDE.md")).toBe(false)
 
   const doctor = await run($, "doctor")
-  expect(doctor).toMatch(/nested_memory attribution\s+✓ 1 file\(s\) from 1/)
+  expect(doctor).toMatch(/qué archivo era cada CLAUDE\.md de carpeta\s+✓ identificados 1/)
   expect(w.logs).toEqual([])
 })
 
@@ -293,7 +293,7 @@ x`, "agent-1"))
   await $.prompt.attachment(attachment(`Contents of ${ROOT}/src/api/CLAUDE.md:
 DROP`))
   const tree = await run($, "tree")
-  expect(tree.includes("NESTED (attached on read)")).toBe(false)
+  expect(tree.includes("CARGADO AL TRABAJAR EN UNA CARPETA")).toBe(false)
   expect(tree).toContain("○ ./src/api/CLAUDE.md")
 })
 
@@ -302,8 +302,8 @@ test("nested: an unattributable attachment is reported by doctor, not guessed", 
   await start($)
   await $.prompt.context(rootContext)
   await $.prompt.attachment(attachment("API rules, in a format this build invented"))
-  expect(await run($, "doctor")).toMatch(/nested_memory attribution\s+✗ 1\/1 unattributed/)
-  expect((await run($, "tree")).includes("NESTED (attached on read)")).toBe(false)
+  expect(await run($, "doctor")).toMatch(/✗ 1 de 1 sin identificar/)
+  expect((await run($, "tree")).includes("CARGADO AL TRABAJAR EN UNA CARPETA")).toBe(false)
 })
 
 test("nested: the walk runs once per directory per context, and never outside the project", async ($, on) => {
@@ -330,10 +330,10 @@ test("issues: lexical overlap between delivered files, counted in the overview",
     ],
   })
   const issues = await run($, "issues")
-  expect(issues).toContain("MEDIUM  Lexical overlap (HIGH)")
+  expect(issues).toContain("Importancia media · Texto casi repetido")
   expect(issues).toContain("./CLAUDE.md > Testing")
   expect(issues).toContain("./.claude/rules/testing.md > Testing")
-  expect(await run($)).toMatch(/Issues\s+1/)
+  expect(await run($)).toMatch(/⚠ 1 problema \(1 de importancia media\)/)
 })
 
 test("issues: stale paths are checked on disk and located on the file's real line", async ($, on) => {
@@ -346,10 +346,10 @@ test("issues: stale paths are checked on disk and located on the file's real lin
     instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nSee `src/api/service.ts` and `src/missing.ts`.\n" }],
   })
   const issues = await run($, "issues")
-  expect(issues).toContain("LOW  Stale path")
+  expect(issues).toContain("Importancia baja · Ruta que ya no existe")
   expect(issues).toContain("./CLAUDE.md:6")
-  expect(issues).toContain("References src/missing.ts, which does not exist.")
-  expect(issues.includes("src/api/service.ts, which")).toBe(false)
+  expect(issues).toContain("Las instrucciones mencionan src/missing.ts, pero no existe en el proyecto.")
+  expect(issues.includes("mencionan src/api/service.ts")).toBe(false)
 })
 
 test("issues: thresholds come from .context-lab/config.json", async ($, on) => {
@@ -358,9 +358,9 @@ test("issues: thresholds come from .context-lab/config.json", async ($, on) => {
   await start($)
   await $.prompt.context({ blocks: [], instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: big }] })
   const issues = await run($, "issues")
-  expect(issues).toContain("Large always-on section")
-  expect(issues).toContain("threshold 500, configurable")
-  expect(issues).toContain("NOT EXPERIMENTALLY TESTED")
+  expect(issues).toContain("Sección grande que se carga siempre")
+  expect(issues).toContain("Se avisa a partir de 500 tokens")
+  expect(issues).toContain("comprueba con /context-lab probar")
 })
 
 // Phase 3 — dynamic context: skills and subagents (SPEC §11).
@@ -397,12 +397,13 @@ test("skills: an activation is observed in tree and overview, with the listing's
     rateLimits: [],
   })
   const tree = await run($, "tree")
-  expect(tree).toContain("● SKILLS (activated)")
-  expect(tree).toContain("● skill: commit")
+  expect(tree).toContain("SKILLS ACTIVADAS EN ESTA CONVERSACIÓN")
+  expect(tree).toContain("● commit")
   const overview = await run($)
-  expect(overview).toMatch(/Skill listing \(always-on\)\s+~2\.1k {2}54\/80 skills listed/)
-  expect(overview).toMatch(/● skill: commit\s+~\d+ {2}×1/)
-  expect(await run($, "doctor")).toMatch(/skill\.prompt\s+✓ observed ×1/)
+  expect(overview).toMatch(/Lista de skills \(Claude la lee siempre\)\s+~2\.1k tokens/)
+  expect(overview).toContain("Caben 54 de 80.")
+  expect(overview).toMatch(/Activada ahora: commit\s+~\d+/)
+  expect(await run($, "doctor")).toMatch(/skills activadas\s+✓ 1 vez/)
   expect(w.logs).toEqual([])
 })
 
@@ -416,11 +417,11 @@ test("subagents: topology in the tree, prompts never kept, denials counted", asy
   await $.agent.spawn(spawnInput("t3", { description: "DENY this" }))
 
   const tree = await run($, "tree")
-  expect(tree).toContain("SUBAGENTS (this session) — Subagents 2 spawned (Explore ×1, general-purpose ×1) · 1 spawned by a subagent · 1 denied")
-  expect(tree).toContain("├─ Explore  claude-haiku-4-5")
-  expect(tree).toContain("│  └─ general-purpose  claude-haiku-4-5")
-  expect(tree).toContain("(DENIED)")
-  expect(await run($, "doctor")).toMatch(/agent\.spawn\s+✓ observed ×3/)
+  expect(tree).toContain("SUBAGENTES EN ESTA SESIÓN: 2 lanzados (Explore ×1, general-purpose ×1) · 1 lanzado por otro subagente · 1 bloqueado")
+  expect(tree).toContain("\n  Explore  claude-haiku-4-5")
+  expect(tree).toContain("\n      general-purpose  claude-haiku-4-5")
+  expect(tree).toContain("(BLOQUEADO)")
+  expect(await run($, "doctor")).toMatch(/subagentes\s+✓ 3 veces/)
   expect(JSON.stringify([...w.store.values()]).includes("PROMPT-SECRET")).toBe(false)
 })
 
@@ -447,23 +448,23 @@ for (const surface of ["terminal", "desktop"] as const) {
       instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nSee `src/missing.ts`.\n" }],
     })
     const line = await run($)
-    expect(line).toBe("Context Lab opened on overview. Keys in the pane: o overview, t tree, i issues, e experiments, r refresh, Esc close.")
+    expect(line).toBe("Context Lab abierto en Resumen. Teclas: 1 Resumen · 2 Archivos · 3 Problemas · 4 Experimentos · a Actualizar · Esc Cerrar.")
 
     const ui = await mountPane($, surface)
-    expect((await ui.find({ key: "tab-overview" }))?.text).toContain("Overview")
+    expect((await ui.find({ key: "tab-overview" }))?.text).toContain("Resumen")
     expect(JSON.stringify(await ui.drawn())).toContain("CONTEXT LAB")
-    expect(JSON.stringify(await ui.drawn())).toMatch(/LOW\s+1/)
+    expect(JSON.stringify(await ui.drawn())).toContain("1 de importancia baja")
 
     await ui.press({ key: "tab-tree" })
-    expect(JSON.stringify(await ui.drawn())).toContain("SESSION CONTEXT")
+    expect(JSON.stringify(await ui.drawn())).toContain("ARCHIVOS QUE CLAUDE RECIBE")
 
     await ui.press({ key: "tab-issues" })
     const issues = JSON.stringify(await ui.drawn())
-    expect(issues).toContain("CONTEXT ISSUES")
-    expect(issues).toContain("References src/missing.ts, which does not exist.")
+    expect(issues).toContain("PROBLEMAS EN LAS INSTRUCCIONES")
+    expect(issues).toContain("Las instrucciones mencionan src/missing.ts, pero no existe en el proyecto.")
 
     await ui.press({ key: "tab-experiments" })
-    expect(JSON.stringify(await ui.drawn())).toContain("No experiment results yet")
+    expect(JSON.stringify(await ui.drawn())).toContain("Aún no hay experimentos")
   })
 }
 
@@ -473,22 +474,22 @@ test("pane: refresh re-runs the analyzers on what was observed since", async ($,
   await $.prompt.context({ blocks: [], instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nclean\n" }] })
   await run($, "issues")
   const ui = await mountPane($, "terminal")
-  expect(JSON.stringify(await ui.drawn())).toContain("No issues found")
+  expect(JSON.stringify(await ui.drawn())).toContain("No se encontraron problemas")
 
   await $.prompt.context({
     blocks: [],
     instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nSee `src/gone.ts`.\n" }],
   })
   await ui.press({ key: "refresh" })
-  expect(JSON.stringify(await ui.drawn())).toContain("References src/gone.ts")
+  expect(JSON.stringify(await ui.drawn())).toContain("mencionan src/gone.ts")
 })
 
 test("headless (no surface): /context-lab answers with the full text, no pane", async ($, on) => {
   world(on)
   await start($)
   await $.prompt.context({ blocks: [], instructionFiles: files })
-  expect(await run($)).toContain("CONTEXT LAB")
-  expect(await run($, "experiments")).toContain("No experiment results yet")
+  expect(await run($)).toContain("CONTEXT LAB · qué lee Claude")
+  expect(await run($, "experiments")).toContain("Aún no hay experimentos")
 })
 
 // Phases 6–7 through the engine: init, report, eval's guards.
@@ -498,12 +499,12 @@ test("init creates .context-lab/ once and never overwrites", async ($, on) => {
   world(on, { disk })
   await start($)
   const first = await run($, "init")
-  expect(first).toContain("created  .context-lab/config.json")
-  expect(first).toContain("created  .context-lab/.gitignore")
+  expect(first).toContain("creado   .context-lab/config.json")
+  expect(first).toContain("creado   .context-lab/.gitignore")
   expect(JSON.parse(disk[".context-lab/config.json"]!).trialsPerTask).toBe(3)
   disk[".context-lab/config.json"] = '{"trialsPerTask": 9}'
   const second = await run($, "init")
-  expect(second).toContain("kept     .context-lab/config.json (exists, not overwritten)")
+  expect(second).toContain("ya existía .context-lab/config.json (no se ha tocado)")
   expect(disk[".context-lab/config.json"]).toBe('{"trialsPerTask": 9}')
 })
 
@@ -516,15 +517,15 @@ test("report writes one Markdown file under .context-lab/reports/, without conte
     instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project", content: "# P\nSECRET-REPORT-MARKER see `src/gone.ts`\n" }],
   })
   const answer = await run($, "report")
-  expect(answer).toMatch(/^Report written: \.\/\.context-lab\/reports\/.+\.md$/)
+  expect(answer).toMatch(/^Informe guardado en \.\/\.context-lab\/reports\/.+\.md$/)
   const name = Object.keys(disk).find((k) => k.startsWith(".context-lab/reports/"))!
   const report = disk[name]!
-  expect(report).toContain("# Context Lab report")
+  expect(report).toContain("# Informe de Context Lab")
   expect(report).toContain("| Claude Code | 2.1.291 |")
-  expect(report).toContain("| Git commit | abc123 |")
-  expect(report).toContain("| ./CLAUDE.md | always-on | project |")
-  expect(report).toContain("References src/gone.ts, which does not exist.")
-  expect(report).toContain("## Limitations")
+  expect(report).toContain("| Commit de git | abc123 |")
+  expect(report).toContain("| ./CLAUDE.md | siempre | project |")
+  expect(report).toContain("Las instrucciones mencionan src/gone.ts, pero no existe en el proyecto.")
+  expect(report).toContain("## Límites de estas medidas")
   expect(report.includes("SECRET-REPORT-MARKER")).toBe(false)
   expect(Object.keys(disk).filter((k) => !k.startsWith(".context-lab/reports/") && !["CLAUDE.md", "src/a.ts"].includes(k))).toEqual([])
 })
@@ -532,18 +533,18 @@ test("report writes one Markdown file under .context-lab/reports/, without conte
 test("eval: refused on a dirty tree, usage without a variant, stop when idle", async ($, on) => {
   world(on, { disk: { "CLAUDE.md": "x" }, dirty: ["src/app.ts"] })
   await start($)
-  expect(await run($, "eval")).toContain("Usage: /context-lab eval <variant>")
-  expect(await run($, "eval stop")).toBe("No eval is running.")
+  expect(await run($, "eval")).toContain("Uso: /context-lab probar <nombre>")
+  expect(await run($, "eval stop")).toBe("No hay ningún experimento en marcha.")
   const dirty = await run($, "eval compact")
-  expect(dirty).toContain("Context Lab eval refused.")
-  expect(dirty).toContain("Commit or stash changes first.")
+  expect(dirty).toContain("Experimento cancelado: hay cambios sin guardar en git.")
+  expect(dirty).toContain("Haz commit (o git stash)")
   expect(dirty).toContain("src/app.ts")
 })
 
 test("eval: a clean tree with no .context-lab asks for init", async ($, on) => {
   world(on, { disk: { "CLAUDE.md": "x" } })
   await start($)
-  expect(await run($, "eval compact")).toBe("No .context-lab/ here: run /context-lab init first.")
+  expect(await run($, "eval compact")).toBe("Aquí no hay carpeta .context-lab/: ejecuta primero /context-lab iniciar.")
 })
 
 // The band above the prompt.
@@ -564,7 +565,7 @@ for (const surface of ["terminal", "desktop"] as const) {
     await $.session.measure({ context: { tokens: 71_420, window: 200_000, percent: 36 }, rateLimits: [], changed: ["context"] })
     await run($, "doctor") // settles the background observations
     const text = JSON.stringify(await band.drawn())
-    expect(text).toContain("Context Lab · 71.4k/200k (36%) · instructions ~101 in 1 file · no issues")
+    expect(text).toContain("Context Lab · contexto 71.4k de 200k (36%) · Claude lee siempre ~101 tokens (1 archivo) · sin problemas")
     expect(await band.find({ key: "cl-open" })).toBeDefined()
 
     await band.press({ key: "cl-hide" })

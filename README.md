@@ -30,11 +30,18 @@ Answer `y` to add the marketplace and pick a scope. Requires Claude Code >= 2.1.
 
 ## Use
 
+The interface speaks Spanish, in plain words: what Claude reads before you type, how much of
+the context it takes, what is wrong with it and what to do. Commands accept Spanish names
+(`resumen`, `archivos`, `problemas`, `experimentos`, `iniciar`, `probar`, `informe`) or the
+English ones below. In the pane: `1` Resumen · `2` Archivos · `3` Problemas · `4` Experimentos ·
+`a` Actualizar · `Esc`.
+
+
 ```text
 A one-line band above the prompt shows context use, always-on instructions and issues once
-something has been observed (Open shows the pane, Hide hides it until the next /context-lab).
+something has been observed (Ver shows the pane, Ocultar hides it until the next /context-lab).
 
-/context-lab            opens the pane — keys: o overview · t tree · i issues · e experiments · r refresh · Esc
+/context-lab            opens the pane — keys: 1 resumen · 2 archivos · 3 problemas · 4 experimentos · a actualizar · Esc
 /context-lab <view>     opens the pane on that view (headless -p: prints it instead)
 
 Views:

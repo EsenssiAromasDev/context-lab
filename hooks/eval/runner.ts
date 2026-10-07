@@ -20,12 +20,12 @@ import {
 // graded by the task's own deterministic command.
 
 export const DIRTY_REFUSAL = [
-  "Context Lab eval refused.",
+  "Experimento cancelado: hay cambios sin guardar en git.",
   "",
-  "Evaluation requires a clean Git state so every",
-  "trial can start from the same repository snapshot.",
+  "Cada intento tiene que empezar exactamente desde el mismo código,",
+  "así que el proyecto debe estar sin cambios pendientes.",
   "",
-  "Commit or stash changes first.",
+  "Haz commit (o git stash) y vuelve a intentarlo.",
 ].join("\n")
 
 export interface Slot {
@@ -117,13 +117,13 @@ export async function prepare(host: EvalHost, root: string, variantName: string)
   const info = await gitInfo(host, root)
   if ("error" in info) return info
   const dirty = await workingTreeChanges(host, info)
-  if (dirty.length) return { error: `${DIRTY_REFUSAL}\n\nChanged: ${dirty.slice(0, 10).join(", ")}${dirty.length > 10 ? ", ..." : ""}` }
+  if (dirty.length) return { error: `${DIRTY_REFUSAL}\n\nCambiados: ${dirty.slice(0, 10).join(", ")}${dirty.length > 10 ? ", ..." : ""}` }
   const configPath = joinPath(root, ".context-lab/config.json")
-  if (!(await host.exists(configPath))) return { error: "No .context-lab/ here: run /context-lab init first." }
+  if (!(await host.exists(configPath))) return { error: "Aquí no hay carpeta .context-lab/: ejecuta primero /context-lab iniciar." }
   const config = parseEvalConfig(await host.read(configPath))
   const { tasks, errors } = await loadTasks(host, root)
-  if (errors.length) return { error: `Task files have errors:\n${errors.map((e) => `- ${e}`).join("\n")}` }
-  if (tasks.length === 0) return { error: "No tasks in .context-lab/evals/tasks/ (see the example written by init)." }
+  if (errors.length) return { error: `Hay errores en los archivos de tareas:\n${errors.map((e) => `- ${e}`).join("\n")}` }
+  if (tasks.length === 0) return { error: "No hay tareas en .context-lab/evals/tasks/ (mira el ejemplo que creó /context-lab iniciar)." }
   const variant = await loadVariant(host, root, variantName)
   if ("error" in variant) return variant
   const claude = await resolveClaude(host, config.claude)
@@ -182,7 +182,7 @@ export async function runExperiment(host: EvalHost, root: string, p: Prepared, h
     p.config,
   )
   await host.write(joinPath(resultsDir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`)
-  await host.write(joinPath(resultsDir, "report.md"), `# ${runId}\n\n\`\`\`text\n${renderExperiment(summary)}\n\`\`\`\n${stopped ? "\nStopped before all trials ran.\n" : ""}`)
+  await host.write(joinPath(resultsDir, "report.md"), `# ${runId}\n\n\`\`\`text\n${renderExperiment(summary)}\n\`\`\`\n${stopped ? "\nDetenido antes de terminar todas las ejecuciones.\n" : ""}`)
   await hooks.onProgress?.({ runId, done: results.length, total: slots.length })
   return { runId, results, summary, resultsDir, stopped }
 }

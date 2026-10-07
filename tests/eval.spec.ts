@@ -163,11 +163,12 @@ test("verdict: PROMISING with few tasks, SUPPORTED with enough, never 'smarter'"
   const few = summarize(trials([{ task: "a", base: [1, 1, 1], variant: [1, 1, 1] }, { task: "b", base: [1, 0, 1], variant: [1, 0, 1] }], [8300, 4900], [43100, 37200]), meta, DEFAULT_EVAL)
   assert.equal(few.verdict, "PROMISING")
   assert.ok(Math.abs(few.contextDiffPercent! + 40.96) < 0.1)
-  assert.match(few.interpretation.join("\n"), /Context savings: CLEAR/)
-  assert.match(few.interpretation.join("\n"), /Quality regression: NOT OBSERVED WITH CURRENT POWER/)
-  assert.match(few.interpretation.join("\n"), /20\+ real tasks/)
+  assert.match(few.interpretation.join("\n"), /✓ Ahorra: las instrucciones fijas bajan un 41%/)
+  assert.match(few.interpretation.join("\n"), /✓ Con estos datos no se ve que Claude empeore/)
+  assert.match(few.interpretation.join("\n"), /haz al menos 20 tareas reales/)
   const text = renderExperiment(few)
-  assert.match(text, /PROMISING/)
+  assert.match(text, /RESULTADO: PROMETEDOR/)
+  assert.match(text, /Tareas resueltas\s+83% \(5 de 6\)\s+83% \(5 de 6\)/)
   assert.doesNotMatch(text, /smarter|score/i)
 
   const many = Array.from({ length: 24 }, (_, i) => ({ task: `t${i}`, base: [1, 1, 1], variant: [1, 1, 1] }))
@@ -177,10 +178,11 @@ test("verdict: PROMISING with few tasks, SUPPORTED with enough, never 'smarter'"
 test("verdict: NOT PROMISING on regression or no savings; INCONCLUSIVE without pairs", () => {
   const worse = summarize(trials([{ task: "a", base: [1, 1, 1], variant: [0, 0, 0] }], [8000, 4000], [1, 1]), meta, DEFAULT_EVAL)
   assert.equal(worse.verdict, "NOT PROMISING")
-  assert.match(worse.interpretation.join("\n"), /Quality regression: OBSERVED/)
+  assert.match(worse.interpretation.join("\n"), /✗ Claude acierta MENOS tareas con el cambio/)
+  assert.match(worse.interpretation.join("\n"), /no hagas este cambio/)
   const same = summarize(trials([{ task: "a", base: [1], variant: [1] }], [8000, 7900], [1, 1]), meta, DEFAULT_EVAL)
   assert.equal(same.verdict, "NOT PROMISING")
-  assert.match(same.interpretation.join("\n"), /BELOW THRESHOLD/)
+  assert.match(same.interpretation.join("\n"), /✗ Apenas ahorra/)
   const none = summarize(trials([{ task: "a", base: [1], variant: [] }], [8000, 4000], [1, 1]), meta, DEFAULT_EVAL)
   assert.equal(none.verdict, "INCONCLUSIVE")
 })
@@ -250,7 +252,7 @@ test("e2e: a dirty working tree refuses the eval", async () => {
   writeFileSync(join(p.root, "src/app.cjs"), "module.exports = 2\n")
   const r = await prepare(nodeHost, p.root, "no-claude-md")
   assert.ok("error" in r)
-  assert.match(r.error, /Context Lab eval refused\.[\s\S]*Commit or stash changes first\.[\s\S]*src\/app\.cjs/)
+  assert.match(r.error, /Experimento cancelado: hay cambios sin guardar en git\.[\s\S]*Haz commit \(o git stash\)[\s\S]*src\/app\.cjs/)
 })
 
 test("e2e: untracked eval definitions under .context-lab/ do not count as dirty", async () => {
@@ -292,7 +294,7 @@ test("e2e: baseline vs variant from one SHA, isolated worktrees, hidden graders,
   const saved = JSON.parse(readFileSync(join(out.resultsDir, "trials.json"), "utf8"))
   assert.equal(saved.length, 4)
   assert.ok(existsSync(joinPath(out.resultsDir, "summary.json")))
-  assert.match(readFileSync(join(out.resultsDir, "report.md"), "utf8"), /CONTEXT EXPERIMENT/)
+  assert.match(readFileSync(join(out.resultsDir, "report.md"), "utf8"), /EXPERIMENTO: tus instrucciones actuales contra "no-claude-md"/)
 })
 
 test("e2e: stop between trials keeps what ran", async () => {
@@ -303,5 +305,5 @@ test("e2e: stop between trials keeps what ran", async () => {
   const out = await runExperiment(nodeHost, p.root, prepared, { shouldStop: () => n++ >= 2 })
   assert.equal(out.stopped, true)
   assert.equal(out.results.length, 2)
-  assert.match(readFileSync(join(out.resultsDir, "report.md"), "utf8"), /Stopped before all trials ran/)
+  assert.match(readFileSync(join(out.resultsDir, "report.md"), "utf8"), /Detenido antes de terminar todas las ejecuciones/)
 })

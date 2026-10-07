@@ -20,15 +20,15 @@ const git = (host: EvalHost, cwd: string, args: string[], timeoutMs = 120_000) =
 export async function gitInfo(host: EvalHost, root: string): Promise<GitInfo | { error: string }> {
   try {
     const top = await git(host, root, ["rev-parse", "--show-toplevel"])
-    if (top.exitCode !== 0) return { error: "not a git repository: eval needs Git" }
+    if (top.exitCode !== 0) return { error: "Esta carpeta no es un repositorio git: los experimentos necesitan git." }
     const head = await git(host, root, ["rev-parse", "HEAD"])
-    if (head.exitCode !== 0) return { error: "the repository has no commit yet" }
+    if (head.exitCode !== 0) return { error: "El repositorio todavía no tiene ningún commit." }
     const t = top.stdout.trim().replace(/\\/g, "/")
     const r = root.replace(/\\/g, "/").replace(/\/$/, "")
     const sub = r.toLowerCase().startsWith(`${t.toLowerCase()}/`) ? r.slice(t.length + 1) : ""
     return { top: t, sha: head.stdout.trim(), sub }
   } catch (err) {
-    return { error: `git is not available: ${err instanceof Error ? err.message : String(err)}` }
+    return { error: `No se encuentra git: ${err instanceof Error ? err.message : String(err)}` }
   }
 }
 

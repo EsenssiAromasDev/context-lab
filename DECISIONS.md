@@ -133,6 +133,18 @@ task file would only slow iteration. Everything else must be committed or stashe
 asks `where claude.cmd`, reads the shim and runs the executable it names; `claude` in
 config.json overrides. No shell is ever used.
 
+## D-022 — The interface speaks plain Spanish and says what to do
+
+First real use: "es muy confuso". The views showed numbers and jargon (observed/inferred,
+lexical overlap, Jaccard) without saying what they meant or whether anything should be done.
+Now every view is plain Spanish, each number says what it is ("Claude lee siempre ~280 tokens
+antes de que escribas"), the overview ends in a verdict (share of the context window: <2% fine,
+<10% moderate, otherwise worth summarizing; skills that do not fit the listing), and each finding
+says where, what happens, what to do, the saving, and why we say so. Tabs are 1–4, refresh `a`.
+Commands accept Spanish names (resumen, archivos, problemas, experimentos, iniciar, probar,
+informe) as well as the English ones. Evidence levels are kept, in words: confirmado /
+probablemente / existe pero no se ha cargado.
+
 ## D-012 — Evidence marks are per context
 
 `node.evidence` is the strongest level ever seen (history across sessions). What the tree

@@ -22,7 +22,7 @@ test("sections split on headings, not on # inside code fences", () => {
   assert.deepEqual(
     s.map((x) => [x.heading, x.level, x.line]),
     [
-      ["(preamble)", 0, 1],
+      ["(inicio del archivo)", 0, 1],
       ["A", 1, 2],
       ["B", 2, 7],
     ],
@@ -164,16 +164,17 @@ test("fixture simple-project: one observed instruction, zero issues", () => {
   const { graph, issues } = fixture("simple-project", [{ rel: "CLAUDE.md" }])
   assert.equal(graph.current.length, 1)
   assert.deepEqual(issues, [])
-  assert.match(renderIssues(issues, graph), /No issues found/)
+  assert.match(renderIssues(issues, graph), /No se encontraron problemas/)
 })
 
 test("fixture redundant-project: lexical overlap HIGH between the two Testing sections", () => {
   const { issues } = fixture("redundant-project", [{ rel: "CLAUDE.md" }, { rel: ".claude/rules/testing.md" }])
   assert.deepEqual(issues.map((i) => i.type), ["lexical-overlap"])
   const [o] = issues
-  assert.equal(o!.title, "Lexical overlap (HIGH)")
+  assert.equal(o!.title, "Texto casi repetido")
   assert.deepEqual(o!.locations, ["./CLAUDE.md > Testing", "./.claude/rules/testing.md > Testing"])
-  assert.match(o!.details[0]!.text, /Overlap 9\d% \(Jaccard of 5-word shingles\)/)
+  assert.match(o!.explanation, /el 9\d% de sus frases coincide/)
+  assert.match(o!.action, /Únelas/)
 })
 
 test("fixture discoverable-project: tree discoverable, one stale path, nothing else", () => {
@@ -183,18 +184,18 @@ test("fixture discoverable-project: tree discoverable, one stale path, nothing e
   const tree = issues.find((i) => i.type === "discoverable")!
   assert.equal(tree.requiresEval, true)
   assert.deepEqual(tree.locations, ["./CLAUDE.md > Repository structure"])
-  assert.ok(tree.details.some((d) => d.text === "12/12 listed paths exist in the repository (100%)"), JSON.stringify(tree.details))
-  assert.ok(tree.details.some((d) => d.label === "EXPERIMENTAL" && d.text === "Not tested"))
+  assert.ok(tree.details.some((d) => d.text === "12 de 12 rutas del listado existen en el proyecto (100%)."), JSON.stringify(tree.details))
+  assert.ok(tree.details.some((d) => d.label === "EXPERIMENTAL" && /Nadie ha probado/.test(d.text)))
 
   const stale = issues.find((i) => i.type === "stale-reference")!
-  assert.equal(stale.explanation, "References src/legacy/api.ts, which does not exist.")
+  assert.equal(stale.explanation, "Las instrucciones mencionan src/legacy/api.ts, pero no existe en el proyecto.")
   assert.deepEqual(stale.locations, ["./CLAUDE.md:23"])
 
   const text = renderIssues(issues, graph)
-  assert.match(text, /NOT EXPERIMENTALLY TESTED/)
-  assert.match(text, /Findings are candidates, not verdicts/)
+  assert.match(text, /comprueba con \/context-lab probar/)
+  assert.match(text, /Son sugerencias: Context Lab nunca cambia tus archivos/)
   const overview = renderOverview({ graph, usage: undefined, root: "/x", issues })
-  assert.match(overview, /Issues\s+2/)
+  assert.match(overview, /⚠ 2 problemas \(2 de importancia baja\)/)
 })
 
 test("large always-on sections are flagged against the configurable threshold only", () => {
@@ -211,8 +212,8 @@ test("large always-on sections are flagged against the configurable threshold on
   const [issue] = at(500)
   assert.equal(issue!.type, "large-always-on")
   assert.equal(issue!.evidence, "observed")
-  assert.ok(issue!.details.some((d) => d.text === "Loaded in 1/1 observed contexts"))
-  assert.match(renderIssues(at(500), graph), /Read from disk|NOT EXPERIMENTALLY TESTED/)
+  assert.ok(issue!.details.some((d) => d.text === "Claude lo ha recibido en 1 de 1 conversaciones vistas."))
+  assert.match(renderIssues(at(500), graph), /Qué hacer: No es un error/)
 })
 
 test("issues carry deterministic ids and never an invented score", () => {
@@ -236,6 +237,6 @@ test("stale paths: only anchored, never generated output, alternatives or elisio
     { graph, sources: [{ nodeId: id, file: "./CLAUDE.md", text, fromDisk: true }], root, config: DEFAULT_ANALYSIS },
     new Set(["/r/src", "/r/apps", "/r/openspec"]),
   )
-  assert.deepEqual(issues.map((i) => i.explanation), ["References src/legacy/api.ts, which does not exist."])
+  assert.deepEqual(issues.map((i) => i.explanation), ["Las instrucciones mencionan src/legacy/api.ts, pero no existe en el proyecto."])
   assert.deepEqual(issues[0]!.locations, ["./CLAUDE.md:1"])
 })

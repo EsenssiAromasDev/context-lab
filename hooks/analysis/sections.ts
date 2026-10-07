@@ -1,7 +1,7 @@
 import { measure } from "../metrics/size.ts"
 
 // Markdown → sections by ATX heading (SPEC §13). Headings inside fenced code
-// blocks are not headings. Text before the first heading is "(preamble)".
+// blocks are not headings. Text before the first heading is "(inicio del archivo)".
 
 export interface Section {
   nodeId: string
@@ -29,7 +29,7 @@ const FENCE = /^[ \t]{0,3}(```|~~~)/
 export function splitSections(src: SourceText): Section[] {
   const lines = src.text.split(/\r?\n/)
   const out: Section[] = []
-  let heading = "(preamble)"
+  let heading = "(inicio del archivo)"
   let level = 0
   let line = 1
   let body: string[] = []

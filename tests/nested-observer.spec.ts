@@ -26,7 +26,8 @@ const started = () =>
     { at: 1, sessionId: "s1" },
   )
 
-const labels = (g: ReturnType<typeof started>) => contextTree(g).map((x) => `${x.evidence}:${x.label}`)
+/** Each group as evidence:first word of its label (labels are prose). */
+const labels = (g: ReturnType<typeof started>) => contextTree(g).map((x) => `${x.evidence}:${x.label.split(" ")[0]}`)
 
 test("parseNestedMemory reads the engine's Contents-of headers", () => {
   const text = [
@@ -58,7 +59,7 @@ test("nested fixture: before a Read, root observed and nested available", () => 
     ],
     ctx,
   )
-  assert.deepEqual(labels(g), ["observed:PROJECT", "available:AVAILABLE"])
+  assert.deepEqual(labels(g), ["observed:INSTRUCCIONES", "available:EXISTE"])
   assert.deepEqual(g.available, [nodeId("project", NESTED)])
   assert.equal(g.nodes[nodeId("project", NESTED)]!.estimatedTokens, 100)
 })
@@ -72,9 +73,9 @@ test("nested fixture: after a Read with no attachment, nested is inferred", () =
   assert.equal(g.nodes[id]!.evidence, "inferred")
   assert.equal(g.nodes[id]!.loadCount, 0)
   assert.equal(g.nodes[id]!.metadata.inferredFrom, "src/api/service.ts")
-  assert.deepEqual(labels(g), ["observed:PROJECT", "inferred:POSSIBLE NESTED"])
-  assert.match(renderTree({ graph: g, usage: undefined, root: ROOT }), /◐ \.\/src\/api\/CLAUDE\.md {2}~3 {2}← src\/api\/service\.ts/)
-  assert.match(renderOverview({ graph: g, usage: undefined, root: ROOT }), /◐ 1 nested file inferred/)
+  assert.deepEqual(labels(g), ["observed:INSTRUCCIONES", "inferred:PROBABLEMENTE"])
+  assert.match(renderTree({ graph: g, usage: undefined, root: ROOT }), /◐ \.\/src\/api\/CLAUDE\.md\s+~3 tokens · al leer src\/api\/service\.ts/)
+  assert.match(renderOverview({ graph: g, usage: undefined, root: ROOT }), /\+ 1 que probablemente también se cargó \(sin confirmar\)/)
 })
 
 test("nested fixture: an attachment confirms it as observed, and a later Read cannot demote it", () => {
@@ -93,8 +94,8 @@ test("nested fixture: an attachment confirms it as observed, and a later Read ca
   assert.deepEqual(g.nested, [id])
   assert.deepEqual(g.inferred, [])
   assert.deepEqual(g.available, [])
-  assert.deepEqual(labels(g), ["observed:PROJECT", "observed:NESTED (attached on read)"])
-  assert.match(renderOverview({ graph: g, usage: undefined, root: ROOT }), /Nested \(attached on read\)/)
+  assert.deepEqual(labels(g), ["observed:INSTRUCCIONES", "observed:CARGADO"])
+  assert.match(renderOverview({ graph: g, usage: undefined, root: ROOT }), /CARGADO AL TRABAJAR EN UNA CARPETA/)
 })
 
 test("an attachment that cannot be attributed changes nothing and reports 0", () => {

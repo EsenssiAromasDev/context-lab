@@ -34,7 +34,7 @@ test("an empty skill text delivers nothing", () => {
 
 test("skills are per context: a new context lists none, history stays on the node", () => {
   let g = observeSkill(emptyGraph(), { skill: "commit", text: SKILL_TEXT }, { at: 1 })
-  assert.deepEqual(contextTree(g).map((x) => x.label), ["SKILLS (activated)"])
+  assert.deepEqual(contextTree(g).map((x) => x.label), ["SKILLS ACTIVADAS EN ESTA CONVERSACIÓN"])
   g = observeContext(g, { blocks: [], instructionFiles: [] }, { at: 2 })
   assert.deepEqual(g.skills, [])
   assert.deepEqual(contextTree(g), [])
@@ -101,10 +101,10 @@ test("summary and tree: types, forks, denials, spawns by subagents", () => {
   assert.deepEqual(tree[0]!.children.map((c) => c.agent.toolUseId), ["t2"])
 
   const text = renderTree({ graph: emptyGraph(), usage: undefined, root: "/r", agents: list })
-  assert.match(text, /SUBAGENTS \(this session\) — Subagents 3 spawned \(Explore ×1, fork ×1, general-purpose ×1\) · 1 fork · 1 spawned by a subagent · 1 denied/)
-  assert.match(text, /├─ Explore {2}m\n│ {2}└─ general-purpose {2}m/)
-  assert.match(text, /fork {2}m {2}\(fork, background\)/)
-  assert.match(text, /not exposed by agent\.spawn/)
+  assert.match(text, /SUBAGENTES EN ESTA SESIÓN: 3 lanzados \(Explore ×1, fork ×1, general-purpose ×1\) · 1 copia de la conversación \(fork\) · 1 lanzado por otro subagente · 1 bloqueado/)
+  assert.match(text, /\n {2}Explore {2}m\n {6}general-purpose {2}m/)
+  assert.match(text, /fork {2}m {2}\(fork, en segundo plano\)/)
+  assert.match(text, /Claude Code no dice si un subagente recibe tus instrucciones/)
 })
 
 test("a retried spawn (same tool use) replaces its record; the list is bounded", () => {
@@ -123,8 +123,10 @@ test("overview: skill listing cost, activated skills and subagents under Dynamic
   const usage = { measuredAt: 1, skillListing: { totalSkills: 80, includedSkills: 54, tokens: 2100 } }
   const agents = recordSpawn([], spawn("t1"), { model: "m", agentId: "a1" }, 1)
   const text = renderOverview({ graph: g, usage, root: "/r", agents })
-  assert.match(text, /Dynamic \(loaded on demand\)/)
-  assert.match(text, /Skill listing \(always-on\)\s+~2\.1k {2}54\/80 skills listed/)
-  assert.match(text, /● skill: commit\s+~300 {2}×1/)
-  assert.match(text, /Subagents 1 spawned \(Explore ×1\)/)
+  assert.match(text, /SKILLS/)
+  assert.match(text, /Lista de skills \(Claude la lee siempre\)\s+~2\.1k tokens/)
+  assert.match(text, /Caben 54 de 80\./)
+  assert.match(text, /⚠ Tienes 80 skills y en la lista solo caben 54/)
+  assert.match(text, /Activada ahora: commit\s+~300/)
+  assert.match(text, /SUBAGENTES: 1 lanzado \(Explore ×1\)/)
 })

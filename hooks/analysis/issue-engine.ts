@@ -31,8 +31,12 @@ export interface ContextIssue {
   severity: Severity
   evidence: IssueEvidence
   nodeIds: string[]
+  /** What it is, in a few plain words. */
   title: string
+  /** What happens, in one plain sentence. */
   explanation: string
+  /** What the person can do about it. */
+  action: string
   /** Where: `./CLAUDE.md > Testing`, `./CLAUDE.md:82`. */
   locations: string[]
   details: EvidenceLine[]
@@ -92,11 +96,11 @@ export function analyze(input: AnalysisInput, existing: ReadonlySet<string>): Co
   const contexts = Math.max(graph.contexts, 1)
   const loaded = (id: string) => {
     const n = graph.nodes[id]
-    return `Loaded in ${Math.min(n?.loadCount ?? 0, contexts)}/${contexts} observed contexts`
+    return `Claude lo ha recibido en ${Math.min(n?.loadCount ?? 0, contexts)} de ${contexts} conversaciones vistas`
   }
   const sourceNote = (ids: readonly string[]): EvidenceLine[] =>
     input.sources.some((s) => ids.includes(s.nodeId) && s.fromDisk)
-      ? [{ label: "SOURCE", text: "Read from disk: the delivered text was not in memory (plugin reloaded)" }]
+      ? [{ label: "SOURCE", text: "Leído del archivo en disco (el texto exacto que recibió Claude ya no estaba en memoria)" }]
       : []
 
   for (const g of exactDuplicates(sections)) {
@@ -107,13 +111,13 @@ export function analyze(input: AnalysisInput, existing: ReadonlySet<string>): Co
       severity: g.estimatedSavings >= 50 ? "medium" : "low",
       evidence: "deterministic",
       nodeIds: ids,
-      title: "Exact duplicate section",
-      explanation: `The same text is sent ${g.sections.length} times.`,
+      title: "Texto repetido",
+      explanation: `El mismo texto está en ${g.sections.length} sitios, así que Claude lo lee ${g.sections.length} veces en cada conversación.`,
+      action: "Deja una sola copia y borra las demás.",
       locations: g.sections.map(where),
       details: [
-        { label: "DETERMINISTIC", text: `Identical after normalization; ${g.duplicatedCharacters} duplicated characters` },
-        ...ids.map((id) => ({ label: "OBSERVED" as const, text: `${short(graph.nodes[id])}: ${loaded(id)}` })),
-        { label: "SIZE", text: `${approx(g.estimatedSavings)} tokens beyond the first copy` },
+        { label: "DETERMINISTIC", text: `Son idénticos si se ignoran mayúsculas y formato (${g.duplicatedCharacters} caracteres repetidos).` },
+        ...ids.map((id) => ({ label: "OBSERVED" as const, text: `${short(graph.nodes[id])}: ${loaded(id)}.` })),
         ...sourceNote(ids),
       ],
       estimatedSavings: g.estimatedSavings,
@@ -129,12 +133,12 @@ export function analyze(input: AnalysisInput, existing: ReadonlySet<string>): Co
       severity: o.level === "high" ? "medium" : "low",
       evidence: "deterministic",
       nodeIds: ids,
-      title: `Lexical overlap (${o.level.toUpperCase()})`,
-      explanation: "Two sections share most of their wording. Lexical overlap, not a judgement of meaning.",
+      title: "Texto casi repetido",
+      explanation: `Estas dos secciones dicen casi lo mismo: el ${Math.round(o.jaccard * 100)}% de sus frases coincide.`,
+      action: "Únelas, o deja cada idea en un solo sitio.",
       locations: [where(o.a), where(o.b)],
       details: [
-        { label: "DETERMINISTIC", text: `Overlap ${Math.round(o.jaccard * 100)}% (Jaccard of 5-word shingles)` },
-        { label: "SIZE", text: `Potential duplicate ${approx(o.estimatedSavings)} tokens` },
+        { label: "DETERMINISTIC", text: "Se comparan las palabras, no el significado: confirma que de verdad dicen lo mismo." },
         ...sourceNote(ids),
       ],
       estimatedSavings: o.estimatedSavings,
@@ -164,12 +168,12 @@ export function analyze(input: AnalysisInput, existing: ReadonlySet<string>): Co
       severity: "low",
       evidence: "deterministic",
       nodeIds: [r.nodeId],
-      title: "Stale path",
-      explanation: `References ${r.path}, which does not exist.`,
+      title: "Ruta que ya no existe",
+      explanation: `Las instrucciones mencionan ${r.path}, pero no existe en el proyecto.`,
+      action: "Corrige la ruta o quita la referencia: Claude puede perder tiempo buscándola.",
       locations: unique(locations),
       details: [
-        { label: "DETERMINISTIC", text: `Filesystem check: not found at ${r.checked.map((c) => rel(c, root)).join(" or ")}` },
-        { label: "DETERMINISTIC", text: `Confidence it names a path: ${r.confidence.toUpperCase()}` },
+        { label: "DETERMINISTIC", text: `Buscado en ${r.checked.map((c) => rel(c, root)).join(" y en ")}: no está.` },
       ],
       requiresEval: false,
     })
@@ -192,13 +196,14 @@ export function analyze(input: AnalysisInput, existing: ReadonlySet<string>): Co
       severity: s.estimatedTokens >= config.largeSectionEstimatedTokens * 2 ? "low" : "info",
       evidence: "observed",
       nodeIds: [s.nodeId],
-      title: "Large always-on section",
-      explanation: "Sent with every conversation. Size alone is not a defect: a candidate for evaluation.",
+      title: "Sección grande que se carga siempre",
+      explanation: `Ocupa ${approx(s.estimatedTokens)} tokens en cada conversación, la necesites o no.`,
+      action: "No es un error. Si solo hace falta a veces, muévela a una skill o a un archivo aparte; antes, comprueba con /context-lab probar que Claude no empeora.",
       locations: [where(s)],
       details: [
-        { label: "OBSERVED", text: loaded(s.nodeId) },
-        { label: "SIZE", text: `${approx(s.estimatedTokens)} tokens (threshold ${config.largeSectionEstimatedTokens}, configurable)` },
-        { label: "EXPERIMENTAL", text: "Not tested" },
+        { label: "OBSERVED", text: `${loaded(s.nodeId)}.` },
+        { label: "SIZE", text: `Se avisa a partir de ${config.largeSectionEstimatedTokens} tokens (configurable en .context-lab/config.json).` },
+        { label: "EXPERIMENTAL", text: "Nadie ha probado todavía si quitarla empeora a Claude." },
       ],
       requiresEval: true,
     })
@@ -215,22 +220,21 @@ function discoverableIssue(
   graph: ContextGraph,
   loaded: (id: string) => string,
 ): ContextIssue {
-  const what = b.kind === "tree" ? "Repository tree" : "File inventory"
-  const always = graph.current.includes(b.nodeId)
+  const what = b.kind === "tree" ? "un árbol de carpetas" : "una lista de archivos"
   return {
     id: issueId("discoverable", [`${b.nodeId}#${b.line}`]),
     type: "discoverable",
     severity: b.estimatedTokens >= 500 ? "medium" : "low",
     evidence: "deterministic",
     nodeIds: [b.nodeId],
-    title: `${what} ${always ? "permanently loaded" : "in context"}`,
-    explanation: "Most entries can be listed from the filesystem on demand. Candidate for on-demand discovery; requires eval before removal.",
+    title: "Listado que Claude puede consultar solo",
+    explanation: `Es ${what} (${approx(b.estimatedTokens)} tokens) y ${b.existing} de sus ${b.total} rutas existen: Claude puede mirar las carpetas cuando lo necesite en vez de leerlo siempre.`,
+    action: "Puedes quitarlo de las instrucciones fijas. Antes, comprueba con /context-lab probar que Claude no empeora.",
     locations: [`${b.file} > ${sectionAt(sections, b.nodeId, b.line)}`],
     details: [
-      { label: "OBSERVED", text: loaded(b.nodeId) },
-      { label: "DETERMINISTIC", text: `${b.existing}/${b.total} listed paths exist in the repository (${Math.round(b.ratio * 100)}%)` },
-      { label: "SIZE", text: `${approx(b.estimatedTokens)} tokens` },
-      { label: "EXPERIMENTAL", text: "Not tested" },
+      { label: "OBSERVED", text: `${loaded(b.nodeId)}.` },
+      { label: "DETERMINISTIC", text: `${b.existing} de ${b.total} rutas del listado existen en el proyecto (${Math.round(b.ratio * 100)}%).` },
+      { label: "EXPERIMENTAL", text: "Nadie ha probado todavía si quitarlo empeora a Claude." },
     ],
     estimatedSavings: b.estimatedTokens,
     requiresEval: true,
@@ -242,7 +246,7 @@ function where(s: Section): string {
 }
 
 function sectionAt(sections: readonly Section[], nodeId: string, line: number): string {
-  let heading = "(preamble)"
+  let heading = "(inicio del archivo)"
   for (const s of sections) if (s.nodeId === nodeId && s.line <= line) heading = s.heading
   return heading
 }

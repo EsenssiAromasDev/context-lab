@@ -53,17 +53,17 @@ export function initFiles(): InitFile[] {
 }
 
 export function renderInit(created: readonly string[], kept: readonly string[]): string {
-  const lines = ["Context Lab initialized.", ""]
-  for (const p of created) lines.push(`  created  ${p}`)
-  for (const p of kept) lines.push(`  kept     ${p} (exists, not overwritten)`)
+  const lines = ["Context Lab preparado.", ""]
+  for (const p of created) lines.push(`  creado   ${p}`)
+  for (const p of kept) lines.push(`  ya existía ${p} (no se ha tocado)`)
   lines.push(
     "",
-    "Next:",
-    "  1. Add tasks to .context-lab/evals/tasks/ (see example.yaml.example)",
-    "  2. Add a variant under .context-lab/variants/<name>/",
-    "  3. Commit, then /context-lab eval <name>",
+    "Siguiente:",
+    "  1. Escribe tareas en .context-lab/evals/tasks/ (copia example.yaml.example)",
+    "  2. Pon la versión cambiada de tus instrucciones en .context-lab/variants/<nombre>/",
+    "  3. Haz commit y ejecuta /context-lab probar <nombre>",
     "",
-    "results/ and reports/ are git-ignored by .context-lab/.gitignore.",
+    "results/ y reports/ no se suben a git (lo dice .context-lab/.gitignore).",
   )
   return lines.join("\n")
 }

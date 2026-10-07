@@ -87,7 +87,7 @@ export async function resolveClaude(host: EvalHost, configured?: readonly string
   }
   if (configured) {
     const v = await attempt(configured)
-    return v ? { argv: [...configured], version: v } : { error: `config "claude" (${configured.join(" ")}) does not start Claude Code` }
+    return v ? { argv: [...configured], version: v } : { error: `El "claude" de config.json (${configured.join(" ")}) no arranca Claude Code` }
   }
   const direct = await attempt(["claude"])
   if (direct) return { argv: ["claude"], version: direct }
@@ -104,5 +104,5 @@ export async function resolveClaude(host: EvalHost, configured?: readonly string
       // fall through to the error below
     }
   }
-  return { error: 'cannot start Claude Code without a shell: set "claude" in .context-lab/config.json to its executable, e.g. ["C:/path/to/claude.exe"]' }
+  return { error: 'No se puede arrancar Claude Code sin una shell: pon su ejecutable en "claude" de .context-lab/config.json, p. ej. ["C:/ruta/a/claude.exe"]' }
 }

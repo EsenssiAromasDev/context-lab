@@ -67,7 +67,7 @@ async function main(args: string[]): Promise<number> {
   const root = resolve(rootAt >= 0 ? args[rootAt + 1]! : process.cwd()).replace(/\\/g, "/")
   const [command] = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--root")
   if (!command) {
-    console.error("usage: node scripts/eval.ts init | <variant> [--root <dir>]")
+    console.error("uso: node scripts/eval.ts init | <versión> [--root <carpeta>]")
     return 2
   }
   if (command === "init") {
@@ -91,7 +91,7 @@ async function main(args: string[]): Promise<number> {
     return 1
   }
   const total = prepared.tasks.length * prepared.config.trialsPerTask * 2
-  console.log(`Context Lab eval: baseline vs ${command} — ${prepared.tasks.length} task(s) × ${prepared.config.trialsPerTask} trial(s) × 2 = ${total} trials`)
+  console.log(`Context Lab: tus instrucciones actuales contra "${command}" — ${prepared.tasks.length} tarea(s) × ${prepared.config.trialsPerTask} intento(s) × 2 = ${total} ejecuciones`)
   console.log(`git ${prepared.info.sha.slice(0, 10)} · Claude Code ${prepared.claude.version} · ${prepared.claude.argv.join(" ")}`)
   const outcome = await runExperiment(nodeHost, root, prepared, {
     onProgress: (p) => {
@@ -99,9 +99,9 @@ async function main(args: string[]): Promise<number> {
     },
   })
   for (const r of outcome.results) {
-    console.log(`  ${r.success ? "PASS" : "FAIL"}  ${r.taskId} · ${r.variant} · trial ${r.trial}  ${(r.durationMs / 1000).toFixed(0)} s${r.error ? `  (${r.error})` : ""}`)
+    console.log(`  ${r.success ? "BIEN " : "FALLO"}  ${r.taskId} · ${r.variant} · intento ${r.trial}  ${(r.durationMs / 1000).toFixed(0)} s${r.error ? `  (${r.error})` : ""}`)
   }
-  console.log(`\n${renderExperiment(outcome.summary)}\n\nResults: ${outcome.resultsDir}`)
+  console.log(`\n${renderExperiment(outcome.summary)}\n\nResultados: ${outcome.resultsDir}`)
   return 0
 }
 

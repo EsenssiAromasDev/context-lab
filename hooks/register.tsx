@@ -4,6 +4,7 @@ import {
   NESTED_FILES,
   NESTED_SEEN,
   NESTED_UNATTRIBUTED,
+  REFRESH_KEY,
   TABS,
   bandLine,
   isPaneView,
@@ -24,7 +25,7 @@ import { emptyGraph, restoreGraph, type ContextGraph } from "./graph/graph.ts"
 import { renderReport, reportFileName } from "./commands/report.ts"
 import type { EvalHost } from "./eval/host.ts"
 import { initFiles, renderInit } from "./eval/init.ts"
-import { renderExperiment } from "./eval/report.ts"
+import { renderExperiment, verdictWord } from "./eval/report.ts"
 import { latestSummary, prepare, runExperiment, type Prepared } from "./eval/runner.ts"
 import {
   applyEngineTokens,
@@ -110,7 +111,7 @@ export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: "Profile the context Claude receives: overview, tree, issues, doctor",
+      description: "Qué lee Claude en cada conversación, qué sobra y si recortarlo funciona",
     })
     try {
       await ensureLoaded($)
@@ -181,7 +182,7 @@ export const register: Register = (on) => {
       if (parsed.view === "eval") return { text: await startEval($, parsed.arg) }
       return { text: renderHelp(parsed) }
     } catch (err) {
-      return { text: `Context Lab error: ${message(err)}` }
+      return { text: `Context Lab: algo falló (${message(err)})` }
     }
   })
 
@@ -194,8 +195,8 @@ export const register: Register = (on) => {
     return (
       <Box>
         <Text dimColor>{line} </Text>
-        <Button key="cl-open" label="Open" onPress={() => openPane($)} />
-        <Button key="cl-hide" label="Hide" onPress={() => update($, bandHiddenAtom, () => true)} />
+        <Button key="cl-open" label="Ver" onPress={() => openPane($)} />
+        <Button key="cl-hide" label="Ocultar" onPress={() => update($, bandHiddenAtom, () => true)} />
       </Box>
     )
   })
@@ -217,8 +218,8 @@ export const register: Register = (on) => {
               {tab.label}
             </Button>
           ))}
-          <Button key="refresh" hotkey="r" onPress={() => refreshPane($)}>
-            Refresh
+          <Button key="refresh" hotkey={REFRESH_KEY} onPress={() => refreshPane($)}>
+            Actualizar
           </Button>
         </Box>
         {lines.map((line) => (
@@ -526,7 +527,7 @@ async function writeReport($: EngineInterface): Promise<string> {
   })
   const path = join(root, `.context-lab/reports/${reportFileName(at)}`)
   await $.fs.write(path, text)
-  return `Report written: ${displayPath(path, root)}`
+  return `Informe guardado en ${displayPath(path, root)}`
 }
 
 /** Shows the latest finished experiment when nothing is running. */
@@ -554,12 +555,12 @@ async function loadLatestExperiment($: EngineInterface): Promise<void> {
  */
 async function startEval($: EngineInterface, arg: string | undefined): Promise<string> {
   if (arg === "stop") {
-    if (!evalRunning) return "No eval is running."
+    if (!evalRunning) return "No hay ningún experimento en marcha."
     stopRequested = true
-    return "Stopping after the current trial."
+    return "Se detendrá al terminar la tarea en curso."
   }
-  if (!arg) return "Usage: /context-lab eval <variant>   (variants live in .context-lab/variants/<name>/)"
-  if (evalRunning) return "An eval is already running: /context-lab eval stop to stop it."
+  if (!arg) return "Uso: /context-lab probar <nombre>   (las versiones están en .context-lab/variants/<nombre>/)"
+  if (evalRunning) return "Ya hay un experimento en marcha: /context-lab probar stop para detenerlo."
   const root = canonicalPath(await $.session.root())
   const prepared = await prepare(evalHost($, root), root, arg)
   if ("error" in prepared) return prepared.error
@@ -569,23 +570,23 @@ async function startEval($: EngineInterface, arg: string | undefined): Promise<s
   const run = runEval($, root, prepared, total)
   if ((await $.session.surfaces()).length === 0) return await run
   void run
-  return `Eval started: baseline vs ${arg}, ${prepared.tasks.length} task(s) × ${prepared.config.trialsPerTask} trial(s) × 2 = ${total} trials. Progress: status line and /context-lab experiments. /context-lab eval stop to stop.`
+  return `Experimento en marcha: tus instrucciones actuales contra "${arg}", ${prepared.tasks.length} tarea(s) × ${prepared.config.trialsPerTask} intento(s) × 2 = ${total} ejecuciones. El progreso sale en la barra de estado y en la tecla 4 del panel. Para detenerlo: /context-lab probar stop.`
 }
 
 async function runEval($: EngineInterface, root: string, prepared: Prepared, total: number): Promise<string> {
   const variant = prepared.variant.name
   try {
-    await update($, experimentAtom, () => ({ status: "running" as const, runId: "", variant, done: 0, total, lines: [`Running baseline vs ${variant}: 0/${total} trials`] }))
+    await update($, experimentAtom, () => ({ status: "running" as const, runId: "", variant, done: 0, total, lines: [`Probando tus instrucciones contra "${variant}": 0 de ${total} ejecuciones`] }))
     const outcome = await runExperiment(evalHost($, root), root, prepared, {
       shouldStop: () => stopRequested,
       onProgress: async (p) => {
-        const line = `Running baseline vs ${variant}: ${p.done}/${p.total} trials${p.current ? ` — now ${p.current}` : ""}`
-        $.ui.status(`Context Lab eval ${p.done}/${p.total}`)
+        const line = `Probando tus instrucciones contra "${variant}": ${p.done} de ${p.total} ejecuciones${p.current ? ` · ahora: ${p.current}` : ""}`
+        $.ui.status(`Context Lab: experimento ${p.done}/${p.total}`)
         await update($, experimentAtom, () => ({ status: "running" as const, runId: p.runId, variant, done: p.done, total: p.total, lines: [line] }))
       },
     })
-    const text = renderExperiment(outcome.summary) + (outcome.stopped ? "\n\nStopped before all trials ran." : "")
-    const where = `Results: ${displayPath(outcome.resultsDir, root)}`
+    const text = renderExperiment(outcome.summary) + (outcome.stopped ? "\n\nDetenido antes de terminar todas las ejecuciones." : "")
+    const where = `Resultados guardados en ${displayPath(outcome.resultsDir, root)}`
     await update($, experimentAtom, () => ({
       status: outcome.stopped ? ("stopped" as const) : ("done" as const),
       runId: outcome.runId,
@@ -594,10 +595,10 @@ async function runEval($: EngineInterface, root: string, prepared: Prepared, tot
       total,
       lines: [...text.split("\n"), "", where],
     }))
-    $.ui.toast(`Context Lab eval ${outcome.stopped ? "stopped" : "finished"}: ${outcome.summary.verdict}`)
+    $.ui.toast(`Context Lab: experimento ${outcome.stopped ? "detenido" : "terminado"} · ${verdictWord(outcome.summary.verdict)}`)
     return `${text}\n\n${where}`
   } catch (err) {
-    const msg = `Context Lab eval failed: ${message(err)}`
+    const msg = `El experimento falló: ${message(err)}`
     await update($, experimentAtom, () => ({ status: "failed" as const, runId: "", variant, done: 0, total, lines: [msg] }))
     return msg
   } finally {

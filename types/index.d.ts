@@ -71,6 +71,7 @@ export interface ContextIssue {
   nodeIds: string[]
   title: string
   explanation: string
+  action: string
   locations: string[]
   details: { label: "OBSERVED" | "DETERMINISTIC" | "SIZE" | "EXPERIMENTAL" | "SOURCE"; text: string }[]
   estimatedSavings?: number

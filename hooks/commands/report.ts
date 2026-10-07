@@ -5,7 +5,9 @@ import { approx, exact } from "../metrics/size.ts"
 import type { SessionUsageSnapshot } from "../metrics/usage.ts"
 import type { AgentRecord } from "../observers/agent-observer.ts"
 import { renderExperiment, type ExperimentSummary } from "../eval/report.ts"
-import { renderTree } from "./context-lab.ts"
+import { renderTree, verdict } from "./context-lab.ts"
+
+const SEVERITY_ES = { high: "alta", medium: "media", low: "baja", info: "aviso" } as const
 
 // `/context-lab report` (SPEC §24): one Markdown file under
 // .context-lab/reports/. Paths, sizes, counts, findings and experiment
@@ -23,12 +25,12 @@ export interface ReportInput {
 }
 
 export const LIMITATIONS = [
-  "Token figures marked ~ are estimates: the engine's local breakdown, or ~4 characters per token.",
-  "`prompt.context` fires per conversation (and after compaction or /clear): load counts count contexts, not prompts.",
-  "Nested CLAUDE.md delivery is attributed by parsing the engine's attachment text, which is not a typed API.",
-  "Whether a subagent receives instruction files is not exposed by agent.spawn.",
-  "Stale paths are reported only when the path's first directory exists.",
-  "Findings are candidates for evaluation, not verdicts: nothing is changed automatically.",
+  "Los tokens con ~ son estimaciones (de Claude Code, o unos 4 caracteres por token).",
+  "\"Visto en N conversaciones\" cuenta conversaciones (y compactaciones o /clear), no mensajes.",
+  "Qué CLAUDE.md de carpeta llegó a Claude se deduce del texto que adjunta Claude Code, que no es una API formal.",
+  "Claude Code no dice si un subagente recibe tus instrucciones.",
+  "Una ruta solo se marca como rota si su primera carpeta existe.",
+  "Los problemas son sugerencias, no veredictos: Context Lab nunca cambia tus archivos.",
 ]
 
 export function reportFileName(at: number): string {
@@ -38,42 +40,44 @@ export function reportFileName(at: number): string {
 export function renderReport(r: ReportInput): string {
   const out: string[] = []
   const date = new Date(r.at).toISOString()
-  out.push("# Context Lab report", "", `Generated ${date}.`, "")
+  out.push("# Informe de Context Lab", "", `Generado el ${date}.`, "")
 
-  out.push("## Environment", "")
+  out.push("## Resumen", "", ...verdict({ graph: r.graph, usage: r.usage, root: r.root, issues: r.issues }).map((v) => `- ${v.trim()}`), "")
+
+  out.push("## Entorno", "")
   out.push(`| | |`, `| --- | --- |`)
-  out.push(`| Claude Code | ${r.environment.claudeVersion ?? "unknown"} |`)
-  out.push(`| Git commit | ${r.environment.gitSha ?? "not a git repository"} |`)
-  if (r.environment.gitClean !== undefined) out.push(`| Working tree | ${r.environment.gitClean ? "clean" : "has uncommitted changes"} |`)
-  out.push(`| Platform | ${r.environment.platform} |`)
-  out.push(`| Contexts observed | ${r.graph.contexts} |`, "")
+  out.push(`| Claude Code | ${r.environment.claudeVersion ?? "desconocido"} |`)
+  out.push(`| Commit de git | ${r.environment.gitSha ?? "no es un repositorio git"} |`)
+  if (r.environment.gitClean !== undefined) out.push(`| Cambios sin commit | ${r.environment.gitClean ? "ninguno" : "sí"} |`)
+  out.push(`| Sistema | ${r.environment.platform} |`)
+  out.push(`| Conversaciones vistas | ${r.graph.contexts} |`, "")
 
-  out.push("## Context use", "")
+  out.push("## Contexto usado", "")
   const u = r.usage
-  if (u?.contextCapacity === undefined) out.push("Not measured in this session.", "")
+  if (u?.contextCapacity === undefined) out.push("No se midió en esta sesión.", "")
   else {
-    out.push(`Context ${u.contextUsed === undefined ? "?" : exact(u.contextUsed)} / ${exact(u.contextCapacity)} tokens${u.contextPercent === undefined ? "" : ` (${u.contextPercent}%)`}.`, "")
+    out.push(`${u.contextUsed === undefined ? "?" : exact(u.contextUsed)} de ${exact(u.contextCapacity)} tokens${u.contextPercent === undefined ? "" : ` (${u.contextPercent}%)`}.`, "")
     if (u.categories?.length) {
-      out.push("| Category (engine estimate) | Tokens |", "| --- | ---: |")
+      out.push("| En qué se va (estimación de Claude Code) | Tokens |", "| --- | ---: |")
       for (const c of u.categories) out.push(`| ${c.name} | ${approx(c.tokens)} |`)
       out.push("")
     }
-    if (u.skillListing) out.push(`Skill listing (always-on): ${approx(u.skillListing.tokens)} tokens, ${u.skillListing.includedSkills}/${u.skillListing.totalSkills} skills listed.`, "")
+    if (u.skillListing) out.push(`Lista de skills (Claude la lee siempre): ${approx(u.skillListing.tokens)} tokens; caben ${u.skillListing.includedSkills} de ${u.skillListing.totalSkills}.`, "")
   }
 
-  out.push("## Context architecture", "", "```text", renderTree({ graph: r.graph, usage: r.usage, root: r.root, agents: r.agents }), "```", "")
+  out.push("## Archivos que Claude recibe", "", "```text", renderTree({ graph: r.graph, usage: r.usage, root: r.root, agents: r.agents }), "```", "")
 
-  out.push("## Instruction files", "")
+  out.push("## Detalle por archivo", "")
   const rows = [
-    ...r.graph.current.map((id) => [id, "always-on"] as const),
-    ...r.graph.nested.map((id) => [id, "nested (observed)"] as const),
-    ...r.graph.inferred.map((id) => [id, "nested (inferred)"] as const),
-    ...r.graph.available.map((id) => [id, "available"] as const),
-    ...r.graph.skills.map((id) => [id, "skill (activated)"] as const),
+    ...r.graph.current.map((id) => [id, "siempre"] as const),
+    ...r.graph.nested.map((id) => [id, "al trabajar en su carpeta"] as const),
+    ...r.graph.inferred.map((id) => [id, "probablemente (sin confirmar)"] as const),
+    ...r.graph.available.map((id) => [id, "existe, no cargado"] as const),
+    ...r.graph.skills.map((id) => [id, "skill activada"] as const),
   ]
-  if (rows.length === 0) out.push("None observed.", "")
+  if (rows.length === 0) out.push("No se ha visto ninguno.", "")
   else {
-    out.push("| File | Role | Kind | ~Tokens | Loads | Sessions | Content hash |", "| --- | --- | --- | ---: | ---: | ---: | --- |")
+    out.push("| Archivo | Cuándo lo lee Claude | Tipo | ~Tokens | Conversaciones | Sesiones | Huella del contenido |", "| --- | --- | --- | ---: | ---: | ---: | --- |")
     for (const [id, role] of rows) {
       const n = r.graph.nodes[id]
       if (n) out.push(`| ${label(n, r.root)} | ${role} | ${n.kind} | ${approx(tokensOf(n))} | ${n.loadCount} | ${n.sessionCount} | ${n.contentHash?.slice(0, 12) ?? ""} |`)
@@ -81,23 +85,22 @@ export function renderReport(r: ReportInput): string {
     out.push("")
   }
 
-  out.push("## Issues", "")
-  if (r.issues.length === 0) out.push("No issues found by the deterministic analyzers.", "")
+  out.push("## Problemas", "")
+  if (r.issues.length === 0) out.push("No se encontraron problemas.", "")
   r.issues.forEach((i, k) => {
-    out.push(`### ${k + 1}. ${i.severity.toUpperCase()} — ${i.title}`, "")
-    for (const loc of i.locations) out.push(`- ${loc}`)
-    out.push("", i.explanation, "")
-    for (const d of i.details) out.push(`- **${d.label}** ${d.text}`)
-    if (i.requiresEval) out.push("- **Status** NOT EXPERIMENTALLY TESTED")
-    out.push("")
+    out.push(`### ${k + 1}. ${i.title} (importancia ${SEVERITY_ES[i.severity]})`, "")
+    for (const loc of i.locations) out.push(`- Dónde: ${loc}`)
+    out.push("", `**Qué pasa:** ${i.explanation}`, "", `**Qué hacer:** ${i.action}`, "")
+    if (i.estimatedSavings !== undefined) out.push(`**Ahorro:** ${approx(i.estimatedSavings)} tokens por conversación`, "")
+    out.push("**Por qué lo digo:**", ...i.details.map((d) => `- ${d.text}`), "")
   })
 
-  out.push("## Experiments", "")
+  out.push("## Experimentos", "")
   if (r.experiment) out.push("```text", renderExperiment(r.experiment), "```", "")
-  else out.push("No experiment results in .context-lab/results/.", "")
+  else out.push("Aún no hay experimentos en .context-lab/results/.", "")
 
-  out.push("## Limitations", "", ...LIMITATIONS.map((l) => `- ${l}`), "")
-  out.push("_No instruction text, conversation or tool output is included in this report._", "")
+  out.push("## Límites de estas medidas", "", ...LIMITATIONS.map((l) => `- ${l}`), "")
+  out.push("_Este informe no incluye el texto de tus instrucciones, ni conversaciones, ni resultados de herramientas._", "")
   return out.join("\n")
 }
 

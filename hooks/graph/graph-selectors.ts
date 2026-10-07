@@ -4,7 +4,7 @@ import type { ContextGraph, ContextKind, ContextNode, EvidenceLevel } from "./gr
 // Read-only views over the graph for the UI and reports.
 
 export const MARK: Record<EvidenceLevel, string> = { observed: "●", inferred: "◐", available: "○" }
-export const LEGEND = "● observed  ◐ inferred  ○ available"
+export const LEGEND = "● Claude lo recibe (confirmado)   ◐ probablemente, sin confirmar   ○ existe, pero no se ha cargado"
 
 export interface TreeGroup {
   label: string
@@ -21,11 +21,11 @@ export interface TreeItem {
 }
 
 const GROUPS: { label: string; kinds: ContextKind[] }[] = [
-  { label: "MANAGED", kinds: ["managed"] },
-  { label: "USER", kinds: ["user"] },
-  { label: "PROJECT", kinds: ["project", "local"] },
-  { label: "MEMORY", kinds: ["memory"] },
-  { label: "UNATTRIBUTED", kinds: ["unknown"] },
+  { label: "INSTRUCCIONES DE TU ORGANIZACIÓN", kinds: ["managed"] },
+  { label: "TUS INSTRUCCIONES PERSONALES (todas tus conversaciones)", kinds: ["user"] },
+  { label: "INSTRUCCIONES DE ESTE PROYECTO", kinds: ["project", "local"] },
+  { label: "MEMORIA AUTOMÁTICA", kinds: ["memory"] },
+  { label: "TEXTO CAMBIADO POR OTRO PLUGIN (no se sabe de qué archivos)", kinds: ["unknown"] },
 ]
 
 /** Instruction nodes of the latest observed context, in load order. */
@@ -65,13 +65,13 @@ export function contextTree(graph: ContextGraph): TreeGroup[] {
     if (members.length) groups.push(group(label, members, "observed"))
   }
   const nested = nestedInstructions(graph)
-  if (nested.length) groups.push(group("NESTED (attached on read)", nested, "observed"))
+  if (nested.length) groups.push(group("CARGADO AL TRABAJAR EN UNA CARPETA", nested, "observed"))
   const skills = pick(graph, graph.skills)
-  if (skills.length) groups.push(group("SKILLS (activated)", skills, "observed"))
+  if (skills.length) groups.push(group("SKILLS ACTIVADAS EN ESTA CONVERSACIÓN", skills, "observed"))
   const inferred = pick(graph, graph.inferred)
-  if (inferred.length) groups.push(group("POSSIBLE NESTED", inferred, "inferred"))
+  if (inferred.length) groups.push(group("PROBABLEMENTE CARGADO (Claude leyó algo de esa carpeta)", inferred, "inferred"))
   const available = pick(graph, graph.available)
-  if (available.length) groups.push(group("AVAILABLE", available, "available"))
+  if (available.length) groups.push(group("EXISTE EN EL PROYECTO, PERO NO SE HA CARGADO", available, "available"))
   return groups
 }
 

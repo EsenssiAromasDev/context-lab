@@ -151,104 +151,92 @@ export function summarize(results: readonly TrialResult[], meta: RunMeta, config
   return s
 }
 
+/** The verdict in the words the person reads. */
+export function verdictWord(v: Verdict): string {
+  return { SUPPORTED: "RESPALDADO", PROMISING: "PROMETEDOR", "NOT PROMISING": "NO COMPENSA", INCONCLUSIVE: "SIN DATOS SUFICIENTES" }[v]
+}
+
 function verdict(s: ExperimentSummary, tasks: number, c: EvalConfig): void {
   const lines = s.interpretation
   if (tasks === 0 || s.qualityDiffPp === undefined) {
     s.verdict = "INCONCLUSIVE"
-    lines.push("No task finished in both arms: nothing can be compared.")
+    lines.push("Ninguna tarea terminó con las dos versiones: no hay nada que comparar.")
     return
   }
   const reduction = s.contextDiffPercent === undefined ? undefined : -s.contextDiffPercent
   const savings = reduction !== undefined && reduction >= c.minContextReductionPercent
   lines.push(
     reduction === undefined
-      ? "Context savings: UNKNOWN (instruction size not measured)"
+      ? "? Ahorro de instrucciones: no se pudo medir."
       : savings
-        ? `Context savings: CLEAR (${fmtPct(-reduction)} project instructions)`
-        : `Context savings: BELOW THRESHOLD (${fmtPct(-reduction)}; threshold −${c.minContextReductionPercent}%)`,
+        ? `✓ Ahorra: las instrucciones fijas bajan un ${reduction.toFixed(0)}%.`
+        : `✗ Apenas ahorra: las instrucciones fijas cambian un ${fmtPct(-reduction)} (hace falta bajar al menos un ${c.minContextReductionPercent}%).`,
   )
   const [lo, hi] = s.qualityCiPp ?? [s.qualityDiffPp, s.qualityDiffPp]
-  lines.push(lo > 0 ? "Quality improvement: ESTABLISHED (95% CI above 0)" : "Quality improvement: NOT ESTABLISHED")
-  lines.push(
-    hi < 0
-      ? "Quality regression: OBSERVED (95% CI below 0)"
-      : s.qualityDiffPp < -c.maxAcceptedQualityRegressionPp
-        ? `Quality regression: OBSERVED (${fmtPp(s.qualityDiffPp)}, beyond the −${c.maxAcceptedQualityRegressionPp} pp tolerance)`
-        : "Quality regression: NOT OBSERVED WITH CURRENT POWER",
-  )
+  if (lo > 0) lines.push("✓ Claude acierta MÁS tareas con el cambio, y la diferencia es clara.")
+  else lines.push("? No está demostrado que Claude acierte más con el cambio.")
+  if (hi < 0) lines.push("✗ Claude acierta MENOS tareas con el cambio, y la diferencia es clara.")
+  else if (s.qualityDiffPp < -c.maxAcceptedQualityRegressionPp) {
+    lines.push(`✗ Claude acertó menos tareas con el cambio (${fmtPp(s.qualityDiffPp)}), más de lo tolerado (${c.maxAcceptedQualityRegressionPp} puntos).`)
+  } else lines.push("✓ Con estos datos no se ve que Claude empeore.")
 
   const withinTolerance = s.qualityDiffPp >= -c.maxAcceptedQualityRegressionPp
   if (!savings || !withinTolerance) {
     s.verdict = "NOT PROMISING"
-    if (!savings) lines.push("The variant does not reduce context enough to be worth adopting on cost grounds.")
-    if (!withinTolerance) lines.push("The observed pass rate fell more than the accepted tolerance.")
+    lines.push("")
+    lines.push(!withinTolerance ? "Conclusión: no hagas este cambio; Claude trabaja peor." : "Conclusión: el cambio ahorra demasiado poco para que merezca la pena.")
     return
   }
   const enough = tasks >= c.minTasksForSupport
   const ciHolds = lo >= -c.maxAcceptedQualityRegressionPp
+  lines.push("")
   if (enough && ciHolds) {
     s.verdict = "SUPPORTED"
-    lines.push("Context is reduced, and the 95% CI rules out a regression beyond the tolerance.")
+    lines.push("Conclusión: puedes hacer el cambio. Ahorra contexto y los datos descartan que Claude empeore.")
   } else {
     s.verdict = "PROMISING"
-    lines.push("The variant reduces context and no meaningful regression was observed.")
-    if (!enough) lines.push(`Only ${tasks} task(s): ${c.minTasksForSupport}+ real tasks are needed before calling it SUPPORTED.`)
-    if (!ciHolds) lines.push(`The 95% CI still allows a regression of ${fmtPp(lo)}: more tasks or trials are needed.`)
+    lines.push("Conclusión: buena señal, pero aún no es seguro.")
+    if (!enough) lines.push(`Con ${tasks} tarea(s) no basta: haz al menos ${c.minTasksForSupport} tareas reales antes de fiarte.`)
+    if (!ciHolds) lines.push(`Los datos todavía permiten que Claude empeore hasta ${fmtPp(-lo).replace("+", "")}: haz más tareas o más intentos.`)
   }
 }
 
 export function renderExperiment(s: ExperimentSummary): string {
-  const col = (label: string, a: string, b: string) => `${label.padEnd(26)}${a.padEnd(16)}${b}`
-  const pct = (x: number | undefined) => (x === undefined ? "?" : `${(x * 100).toFixed(1)}%`)
-  const tok = (x: number | undefined) => (x === undefined ? "?" : approxOrExact(x))
+  const col = (label: string, a: string, b: string) => `${label.padEnd(28)}${a.padEnd(18)}${b}`
+  const rate = (a: ArmSummary) =>
+    a.passRate === undefined ? "?" : `${(a.passRate * 100).toFixed(0)}% (${Math.round(a.passRate * a.trials)} de ${a.trials})`
+  const tok = (x: number | undefined) => (x === undefined ? "?" : x >= 10_000 ? `${(x / 1000).toFixed(1)}k` : exact(x))
   const usd = (x: number | undefined) => (x === undefined ? "?" : `$${x.toFixed(3)}`)
+  const withDiff = (value: string, diff: number | undefined) => (diff === undefined ? value : `${value}  (${fmtPct(diff)})`)
+  const ctx = (x: number | undefined) => (x === undefined ? "?" : approx(x))
   const lines = [
-    "CONTEXT EXPERIMENT",
+    `EXPERIMENTO: tus instrucciones actuales contra "${s.variant}"`,
+    "Pregunta: ¿Claude trabaja igual de bien con el cambio, y gasta menos?",
+    `${s.tasks} tarea(s) · ${s.trialsPerTask} intento(s) por tarea · modelo ${s.model} · commit ${s.gitSha.slice(0, 10)}`,
     "",
-    `baseline vs ${s.variant}`,
-    `Run ${s.runId} · git ${s.gitSha.slice(0, 10)} · Claude Code ${s.claudeVersion} · model ${s.model}`,
-    `Tasks ${s.tasks} · trials/task ${s.trialsPerTask}`,
+    col("", "ACTUAL", "CON EL CAMBIO"),
+    col("Tareas resueltas", rate(s.baseline), rate(s.candidate)),
+    col("Instrucciones fijas", ctx(s.baseline.contextTokens), withDiff(ctx(s.candidate.contextTokens), s.contextDiffPercent)),
+    col("Tokens leídos por intento", tok(s.baseline.inputTokensPerTrial), withDiff(tok(s.candidate.inputTokensPerTrial), s.inputDiffPercent)),
+    col("Coste por intento", usd(s.baseline.costPerTrial), withDiff(usd(s.candidate.costPerTrial), s.costDiffPercent)),
+    col("Tiempo (mediana)", dur(s.baseline.medianDurationMs), dur(s.candidate.medianDurationMs)),
+    col("Intentos con errores", String(s.baseline.errors), String(s.candidate.errors)),
     "",
-    "QUALITY",
-    "────────────────────────────────",
-    col("", "BASELINE", s.variant.toUpperCase()),
-    col("Pass rate", pct(s.baseline.passRate), pct(s.candidate.passRate)),
-    col("Δ (task-weighted)", s.qualityDiffPp === undefined ? "?" : fmtPp(s.qualityDiffPp), ""),
-    col("95% bootstrap CI", s.qualityCiPp ? `[${fmtNum(s.qualityCiPp[0])}, ${fmtNum(s.qualityCiPp[1])}] pp` : "?", ""),
-    col("Trials with errors", String(s.baseline.errors), String(s.candidate.errors)),
+    s.qualityDiffPp === undefined
+      ? "Diferencia en tareas resueltas: ?"
+      : `Diferencia en tareas resueltas: ${fmtPp(s.qualityDiffPp)}` +
+        (s.qualityCiPp ? ` (con un 95% de confianza, entre ${fmtNum(s.qualityCiPp[0])} y ${fmtNum(s.qualityCiPp[1])} puntos)` : ""),
     "",
-    "CONTEXT",
-    "────────────────────────────────",
-    col("Project instructions", s.baseline.contextTokens === undefined ? "?" : approx(s.baseline.contextTokens), s.candidate.contextTokens === undefined ? "?" : approx(s.candidate.contextTokens)),
-    col("Δ", s.contextDiffPercent === undefined ? "?" : fmtPct(s.contextDiffPercent), ""),
+    `RESULTADO: ${verdictWord(s.verdict)}`,
+    ...s.interpretation.map((l) => (l ? `  ${l}` : "")),
     "",
-    "COST",
-    "────────────────────────────────",
-    col("Input tokens / trial", tok(s.baseline.inputTokensPerTrial), tok(s.candidate.inputTokensPerTrial)),
-    col("Δ input", s.inputDiffPercent === undefined ? "?" : fmtPct(s.inputDiffPercent), ""),
-    col("Output tokens / trial", tok(s.baseline.outputTokensPerTrial), tok(s.candidate.outputTokensPerTrial)),
-    col("Cost / trial", usd(s.baseline.costPerTrial), usd(s.candidate.costPerTrial)),
-    col("Cost / success", usd(s.baseline.costPerSuccess), usd(s.candidate.costPerSuccess)),
-    col("Successes / 1M input", fmtOpt(s.baseline.successesPerMillionInput), fmtOpt(s.candidate.successesPerMillionInput)),
-    col("Median duration", dur(s.baseline.medianDurationMs), dur(s.candidate.medianDurationMs)),
-    "",
-    "VERDICT",
-    "────────────────────────────────",
-    s.verdict,
-    "",
-    ...s.interpretation,
-    "",
-    `Guardrails: regression ≤ ${s.config.maxAcceptedQualityRegressionPp} pp, context reduction ≥ ${s.config.minContextReductionPercent}%, SUPPORTED needs ≥ ${s.config.minTasksForSupport} tasks (configurable, not scientific constants).`,
+    `Reglas: se tolera perder hasta ${s.config.maxAcceptedQualityRegressionPp} puntos, el cambio debe ahorrar al menos un ${s.config.minContextReductionPercent}% de instrucciones y «respaldado» exige ${s.config.minTasksForSupport}+ tareas (todo configurable en .context-lab/config.json).`,
   ]
   return lines.join("\n")
 }
 
-function approxOrExact(x: number): string {
-  return x >= 10_000 ? `${(x / 1000).toFixed(1)}k` : exact(x)
-}
-
 function fmtPp(x: number): string {
-  return `${x >= 0 ? "+" : ""}${x.toFixed(1)} pp`
+  return `${x >= 0 ? "+" : ""}${x.toFixed(1)} puntos`
 }
 
 function fmtNum(x: number): string {
@@ -257,10 +245,6 @@ function fmtNum(x: number): string {
 
 function fmtPct(x: number): string {
   return `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`
-}
-
-function fmtOpt(x: number | undefined): string {
-  return x === undefined ? "?" : x.toFixed(1)
 }
 
 function dur(ms: number | undefined): string {

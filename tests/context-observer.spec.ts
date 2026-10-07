@@ -57,7 +57,7 @@ test("parent relationship preserved as an observed imports edge", () => {
   const child = nodeId("project", `${ROOT}/docs/api.md`)
   assert.equal(g.nodes[child]!.parentId, parent)
   assert.deepEqual(g.edges, [{ from: parent, to: child, type: "imports", evidence: "observed" }])
-  const project = contextTree(g).find((x) => x.label === "PROJECT")!
+  const project = contextTree(g).find((x) => x.label === "INSTRUCCIONES DE ESTE PROYECTO")!
   assert.equal(project.items[0]!.node.id, parent)
   assert.equal(project.items[0]!.children[0]!.node.id, child)
 })

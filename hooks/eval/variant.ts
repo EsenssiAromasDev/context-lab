@@ -32,10 +32,10 @@ function safeRelative(p: string): boolean {
 }
 
 export async function loadVariant(host: EvalHost, root: string, name: string): Promise<Variant | { error: string }> {
-  if (!/^[\w.-]{1,64}$/.test(name) || name === BASELINE) return { error: `"${name}" is not a usable variant name` }
+  if (!/^[\w.-]{1,64}$/.test(name) || name === BASELINE) return { error: `"${name}" no sirve como nombre de versión (usa letras, números, "-", "_" o ".")` }
   const dir = variantDir(root, name)
   const manifestPath = joinPath(dir, "manifest.json")
-  if (!(await host.exists(manifestPath))) return { error: `no variant "${name}": ${manifestPath} not found` }
+  if (!(await host.exists(manifestPath))) return { error: `No existe la versión "${name}": falta ${manifestPath}` }
   let manifest: VariantManifest
   try {
     manifest = JSON.parse(await host.read(manifestPath)) as VariantManifest
@@ -46,7 +46,7 @@ export async function loadVariant(host: EvalHost, root: string, name: string): P
   const bad = del.find((d) => !safeRelative(d))
   if (bad !== undefined) return { error: `${manifestPath}: delete entry "${bad}" must be a relative path inside the project` }
   const files = await listFiles(host, joinPath(dir, "files"))
-  if (files.length === 0 && del.length === 0) return { error: `variant "${name}" changes nothing (no files/ and no delete)` }
+  if (files.length === 0 && del.length === 0) return { error: `La versión "${name}" no cambia nada (no tiene files/ ni "delete")` }
   return { name, dir, manifest, files, delete: del }
 }
 
