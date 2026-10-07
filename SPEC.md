@@ -359,7 +359,7 @@ status (`subagentType === "fork"`), model. No Mission-Control-level visualizatio
 
 Implementation notes (verified live on 2.1.291):
 
-- Skill nodes: id `sha256("skill " + name)`, one per skill, `loadCount` = activations. The
+- Skill nodes: id `sha256("skill\0" + name)`, one per skill, `loadCount` = activations. The
   per-context `skills` list (reset at each `prompt.context`) drives the tree's
   `SKILLS (activated)` group. Activated skill text is analyzed with the instruction files
   (a skill repeating `CLAUDE.md` is a duplicate), from memory only.
@@ -710,26 +710,29 @@ Build in this order. Each phase's acceptance gate must pass before the next.
 | 5 UI | Overview / Tree / Issues pane | — | done (harness: terminal + desktop); verify interactively |
 | 6 Reports | `/context-lab report` | — | done |
 | 7 Eval harness | init, schemas, clean-git guard, worktrees, grader, trials, statistics, experiment UI | — | done; e2e-tested with real git |
-| 8 Dogfood | profile this repo, one variant, baseline vs variant, results in README | — | todo |
+| 8 Dogfood | profile this repo, one variant, baseline vs variant, results in README | — | done (docs/DOGFOOD.md) |
 
 ## 48. Definition of Done
 
-- [ ] installs on a fresh supported Claude Code
-- [ ] validates with `claude plugin validate`
-- [ ] all tests pass with `claude plugin test` and `npm test`
-- [ ] `/context-lab` opens correctly
-- [ ] actual `prompt.context` instructions appear; hierarchy is correct
-- [ ] observed and inferred context cannot be confused
-- [ ] total context usage appears where supported
-- [ ] file/section sizes appear
-- [ ] duplicate, lexical overlap, stale path, discoverable detection work
-- [ ] reports work
-- [ ] eval init, baseline and variant experiments work in isolated Git worktrees
-- [ ] grader results captured; statistics produced
-- [ ] raw conversations not persisted; no network calls by default
-- [ ] no instruction file is automatically modified
-- [ ] README documents API limitations; THIRD_PARTY_NOTICES is correct
-- [ ] Context Lab successfully profiles itself
+Status on 2026-10-07 (Claude Code 2.1.291, Windows). "Harness" = `claude plugin test` against
+the engine; "live" = a real Claude Code session; "e2e" = Node tests with real git.
+
+- [ ] installs on a fresh supported Claude Code — loads via `--plugin-dir` (live); a marketplace install is not yet tried
+- [x] validates with `claude plugin validate`
+- [x] all tests pass with `claude plugin test` and `npm test`
+- [ ] `/context-lab` opens correctly — harness on terminal and desktop; **not yet seen in an interactive session**
+- [x] actual `prompt.context` instructions appear; hierarchy is correct — live (store) + harness
+- [x] observed and inferred context cannot be confused — per-context evidence lists, tests; nested ● and ◐ verified live
+- [x] total context usage appears where supported — `session.measure` observed live; drawn in harness
+- [x] file/section sizes appear
+- [x] duplicate, lexical overlap, stale path, discoverable detection work — fixtures + 8 real repositories
+- [x] reports work — harness; same renderer used for the self-profile in docs/DOGFOOD.md
+- [x] eval init, baseline and variant experiments work in isolated Git worktrees — e2e + live dogfood (CLI host)
+- [x] grader results captured; statistics produced
+- [x] raw conversations not persisted; no network calls by default — tests assert no content in store/report; no network code (eval runs `claude`, which does, only on an explicit command)
+- [x] no instruction file is automatically modified
+- [x] README documents API limitations; THIRD_PARTY_NOTICES is correct (no third-party code included)
+- [x] Context Lab successfully profiles itself — docs/DOGFOOD.md
 
 ## 49. README demo V1 must be capable of showing
 

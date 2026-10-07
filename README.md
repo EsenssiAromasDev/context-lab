@@ -18,7 +18,7 @@ The full V1 specification is [SPEC.md](SPEC.md). Design decisions: [DECISIONS.md
 | 5 Pane UI (o/t/i/e tabs, r refresh, Esc close) | done | |
 | 6 Reports (`/context-lab report`) | done | |
 | 7 Eval harness (init, worktrees, graders, bootstrap CI, verdicts) | done | end-to-end tested with real git |
-| 8 Dogfood | see below | |
+| 8 Dogfood | done | [docs/DOGFOOD.md](docs/DOGFOOD.md): self-profile + baseline vs no-CLAUDE.md |
 
 ## Use
 
@@ -37,6 +37,14 @@ issues                  evidence-backed findings: duplicates, overlap, stale pat
 ```
 
 Requires Claude Code >= 2.1.287 (developed on 2.1.291).
+
+## Dogfood result
+
+Context Lab on its own repository: 2 always-on files (~280 tokens) and 0 issues. In a real
+experiment, `baseline` vs `no-claude-md` (5 tasks × 1 trial, Haiku), both arms passed 5/5. The
+verdict is **PROMISING**: context dropped by 100%, and no regression was observed with that little
+data. It is not SUPPORTED, because the tasks were too easy to tell the arms apart and 20+ are
+needed. Full write-up, including why the −32% in input tokens is noise: [docs/DOGFOOD.md](docs/DOGFOOD.md).
 
 ## Experiments without a session
 
