@@ -717,10 +717,10 @@ Build in this order. Each phase's acceptance gate must pass before the next.
 Status on 2026-10-07 (Claude Code 2.1.291, Windows). "Harness" = `claude plugin test` against
 the engine; "live" = a real Claude Code session; "e2e" = Node tests with real git.
 
-- [ ] installs on a fresh supported Claude Code — loads via `--plugin-dir` (live); a marketplace install is not yet tried
+- [ ] installs on a fresh supported Claude Code — loads via `--plugin-dir` and hot reload in an interactive session (live); `.claude-plugin/marketplace.json` validates, a `/plugin install` from GitHub is not yet tried
 - [x] validates with `claude plugin validate`
 - [x] all tests pass with `claude plugin test` and `npm test`
-- [ ] `/context-lab` opens correctly — harness on terminal and desktop; **not yet seen in an interactive session**
+- [ ] `/context-lab` opens correctly — harness on terminal and desktop; loaded in an interactive session and observing it live, pane and band **not yet confirmed on screen**
 - [x] actual `prompt.context` instructions appear; hierarchy is correct — live (store) + harness
 - [x] observed and inferred context cannot be confused — per-context evidence lists, tests; nested ● and ◐ verified live
 - [x] total context usage appears where supported — `session.measure` observed live; drawn in harness
