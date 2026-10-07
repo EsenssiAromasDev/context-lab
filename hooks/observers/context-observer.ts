@@ -23,7 +23,8 @@ export interface ObserveContext {
 const INSTRUCTION_KINDS = new Set<ContextKind>(["managed", "user", "project", "local", "memory"])
 
 export function observeContext(graph: ContextGraph, payload: ContextPayload, ctx: ObserveContext): ContextGraph {
-  let g: ContextGraph = { ...graph, contexts: graph.contexts + 1 }
+  // A new context starts without nested files: they are attached again on demand.
+  let g: ContextGraph = { ...graph, contexts: graph.contexts + 1, nested: [], inferred: [], available: [] }
   if (ctx.sessionId !== undefined) g = { ...g, sessionId: ctx.sessionId }
   const load = { counted: true, sessionId: ctx.sessionId }
 
@@ -91,11 +92,11 @@ export function observeContext(graph: ContextGraph, payload: ContextPayload, ctx
   return { ...g, current }
 }
 
-/** Attaches engine per-file estimates that arrived after the context was observed. */
+/** Attaches engine per-file estimates to this context's files (always-on and nested). */
 export function applyEngineTokens(graph: ContextGraph, engineTokens: ReadonlyMap<string, number>): ContextGraph {
   let changed = false
   const nodes = { ...graph.nodes }
-  for (const id of graph.current) {
+  for (const id of [...graph.current, ...graph.nested]) {
     const n = nodes[id]
     if (!n?.path) continue
     const t = lookupCanonical(engineTokens, n.path)

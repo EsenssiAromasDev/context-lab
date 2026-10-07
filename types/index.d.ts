@@ -39,6 +39,9 @@ export interface ContextGraph {
   capturedAt: number
   sessionId?: string
   current: string[]
+  nested: string[]
+  inferred: string[]
+  available: string[]
   contexts: number
   rewrittenContexts: number
 }

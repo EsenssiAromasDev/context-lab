@@ -54,18 +54,37 @@ export interface ContextGraph {
   sessionId?: string
   /** Ids of the instruction nodes in the latest observed context, in load order. */
   current: string[]
+  /**
+   * This context's nested instruction files, by evidence: attached by the
+   * engine (observed), found by its walk after a Read but never seen attached
+   * (inferred), present in the repository only (available). Reset with each
+   * context; a node's own `evidence` is the strongest it ever had.
+   */
+  nested: string[]
+  inferred: string[]
+  available: string[]
   /** Contexts observed in total, and how many had their files hidden by a rewrite. */
   contexts: number
   rewrittenContexts: number
 }
 
 export function emptyGraph(at = 0): ContextGraph {
-  return { nodes: {}, edges: [], capturedAt: at, current: [], contexts: 0, rewrittenContexts: 0 }
+  return {
+    nodes: {},
+    edges: [],
+    capturedAt: at,
+    current: [],
+    nested: [],
+    inferred: [],
+    available: [],
+    contexts: 0,
+    rewrittenContexts: 0,
+  }
 }
 
 /**
  * A graph read back from $.store, for a new session: counts and history kept,
- * `current` cleared (an earlier session's context is not this one's).
+ * the per-context lists cleared (an earlier session's context is not this one's).
  * Anything that does not look like a graph is dropped, not repaired.
  */
 export function restoreGraph(value: unknown): ContextGraph | null {
@@ -78,6 +97,9 @@ export function restoreGraph(value: unknown): ContextGraph | null {
     edges: g.edges,
     capturedAt: g.capturedAt,
     current: [],
+    nested: [],
+    inferred: [],
+    available: [],
     contexts: g.contexts,
     rewrittenContexts: typeof g.rewrittenContexts === "number" ? g.rewrittenContexts : 0,
   }

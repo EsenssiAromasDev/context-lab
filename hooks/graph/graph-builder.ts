@@ -55,7 +55,10 @@ export function upsertNode(
   const prev = graph.nodes[patch.id]
   const metadata: Record<string, unknown> = { ...(prev?.metadata ?? {}) }
 
-  if (prev?.contentHash !== undefined && patch.contentHash !== undefined && prev.contentHash !== patch.contentHash) {
+  // A content change is only claimed between two deliveries: a file read from
+  // disk and the same file as the engine framed it hash differently.
+  const delivered = prev?.evidence === "observed" && patch.evidence === "observed"
+  if (delivered && prev.contentHash !== undefined && patch.contentHash !== undefined && prev.contentHash !== patch.contentHash) {
     metadata.contentChanges = Number(metadata.contentChanges ?? 0) + 1
   }
 
@@ -69,9 +72,14 @@ export function upsertNode(
     }
   }
 
+  // Weaker evidence never overwrites what a delivery measured: a file read
+  // from disk or listed is not what the engine sent.
+  const keepDelivered = prev?.evidence === "observed" && patch.evidence !== "observed"
+  const fields = keepDelivered ? withoutContent(patch) : patch
+
   const next: ContextNode = {
     ...(prev ?? {}),
-    ...stripUndefined(patch),
+    ...stripUndefined(fields),
     id: patch.id,
     name: patch.name,
     kind: patch.kind,
@@ -93,6 +101,11 @@ export function addEdge(graph: ContextGraph, edge: ContextEdge): ContextGraph {
   const edges = graph.edges.slice()
   edges[i] = { ...old, evidence: "observed" }
   return { ...graph, edges }
+}
+
+function withoutContent(patch: NodePatch): NodePatch {
+  const { contentHash: _h, characters: _c, bytes: _b, estimatedTokens: _t, ...rest } = patch
+  return rest
 }
 
 function stripUndefined<T extends object>(o: T): Partial<T> {

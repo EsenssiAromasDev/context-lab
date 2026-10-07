@@ -376,6 +376,21 @@ are build-dependent: match by name, fail soft, and fall back to the inferred pat
 attachment carries no attributable path. The attachment text's format is not part of the
 typed API; parsing it is a heuristic and must be covered by `doctor` (§38).
 
+Implementation notes (verified live on 2.1.291, fixture `nested-project`):
+
+- The attachment text carries one `Contents of <absolute path> (<description>):` header per
+  file; `hooks/observers/nested-observer.ts` splits on it. Attachments with no recognizable
+  header are counted as unattributed and shown by `doctor`, never guessed.
+- Only the main conversation's attachments count (`agentId` absent), and only when the text
+  reaching Context Lab is not `null` (dropped by a hook beneath).
+- Inference uses `$.fs.ancestors({ names: ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"],
+  of, below: root })` after a successful Read inside the project, once per directory per context.
+- AVAILABLE comes from a bounded breadth-first listing (≤1500 dirs, depth ≤6, skipping
+  dependency/build/dot folders except `.claude`) run only by `/context-lab tree`; names
+  `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`.
+- Marks are per context: the graph keeps `nested`, `inferred`, `available` id lists reset at
+  each `prompt.context`; a node's own `evidence` is the strongest it ever had (history).
+
 ---
 
 ## 13. Analyzer A — exact duplication
@@ -611,6 +626,9 @@ Unit tests (Node `*.spec.ts` for pure modules, `*.test.ts` for the plugin harnes
 
 ## 45. Performance budgets
 
+Observers return the engine's result immediately and record in the background
+(`/context-lab` awaits in-flight work before drawing). The usage breakdown costs ~1 s on
+2.1.291, so after a turn it is fetched only when the context has files not yet asked about.
 prompt.context observer < 10 ms typical; issue analysis < 50 ms on a small repo; UI refresh
 < 16 ms; filesystem scans cached/debounced by path + mtime + content hash; never recursively
 scan huge repos on every event.
@@ -632,7 +650,7 @@ Build in this order. Each phase's acceptance gate must pass before the next.
 | --- | --- | --- | --- |
 | 1 Skeleton | plugin loads, `/context-lab` works, test harness, doctor | `claude plugin validate .` + `claude plugin test .` + `npm test` pass | done (gates pass; live load pending) |
 | 2 Context observer | `prompt.context` → ContextNode/Graph, observed hierarchy, `/context-lab tree` | tree shows real loaded instruction architecture | done in harness; verify live |
-| 2b Nested | `prompt.attachment` nested_memory + `$.fs.ancestors` inference | nested fixture behaves per §44 | todo |
+| 2b Nested | `prompt.attachment` nested_memory + `$.fs.ancestors` inference + bounded available scan | nested fixture behaves per §44 | done; verified live on 2.1.291 |
 | 3 Usage | `session.measure`, usage snapshot, engine per-file estimates; skills/agents observers | overview shows real context use | usage done; skill/agent observers todo |
 | 4 Analyzers | duplicates, lexical overlap, stale paths, discoverable, large always-on | fixture tests pass, zero LLM calls | todo |
 | 5 UI | Overview / Tree / Issues pane | — | todo |

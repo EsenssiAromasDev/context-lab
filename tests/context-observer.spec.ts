@@ -95,10 +95,10 @@ test("inferred nodes never become observed unless an observation confirms them",
   g = upsertNode(g, { id, name: "CLAUDE.md", kind: "project", evidence: "available", path: canon }, 2, { counted: false })
   assert.equal(g.nodes[id]!.evidence, "inferred")
   assert.equal(g.nodes[id]!.loadCount, 0)
-  assert.equal(contextTree(g).find((x) => x.label === "POSSIBLE NESTED")!.evidence, "inferred")
 
   g = observeContext(g, { blocks: [], instructionFiles: [{ path: canon, kind: "project", content: "x" }] }, { at: 3 })
   assert.equal(g.nodes[id]!.evidence, "observed")
+  assert.equal(contextTree(g)[0]!.items[0]!.evidence, "observed")
 })
 
 test("engine per-file estimates are preferred over local ones", () => {

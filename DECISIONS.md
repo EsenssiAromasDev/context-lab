@@ -52,3 +52,24 @@ conversation (it restarts on `/clear`), which is the unit `sessionCount` needs.
 ## D-009 — Fixture test files are not named `*.test.ts`
 
 `claude plugin test .` runs every `*.test.ts` in the tree, fixtures included.
+
+## D-010 — Observers record in the background
+
+Measured live on 2.1.291: awaiting the work inside `tool.call` held a Read's result back
+~1.1 s (the usage breakdown, ~0.9 s, serialized the plugin's other calls). Observers now
+return `next(e)`'s result at once and track their work; `/context-lab` awaits it before
+drawing. Result: tool.call 1155 → 86 ms (incl. the Read), prompt.attachment 621 → 2 ms,
+session.measure 938 → 12 ms. The breakdown is fetched after a turn only when the context
+has files it has not been asked about.
+
+## D-011 — Weaker evidence never overwrites a delivery's measurements
+
+A file read from disk (inferred) and the same file as the engine attached it hash
+differently, which produced false `contentChanges`. Inferred/available updates keep an
+observed node's hash and sizes; content changes are only counted between two deliveries.
+
+## D-012 — Evidence marks are per context
+
+`node.evidence` is the strongest level ever seen (history across sessions). What the tree
+marks comes from the context's `current` / `nested` / `inferred` / `available` lists, reset
+at each `prompt.context`, so last week's attachment never shows as ● today.

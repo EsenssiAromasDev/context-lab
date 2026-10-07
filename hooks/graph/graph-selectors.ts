@@ -8,13 +8,15 @@ export const LEGEND = "● observed  ◐ inferred  ○ available"
 
 export interface TreeGroup {
   label: string
-  /** The group's own evidence: observed if any member was observed. */
+  /** The group's evidence: its strongest member's. */
   evidence: EvidenceLevel
   items: TreeItem[]
 }
 
 export interface TreeItem {
   node: ContextNode
+  /** Evidence in this context (the node's `evidence` is the strongest it ever had). */
+  evidence: EvidenceLevel
   children: TreeItem[]
 }
 
@@ -24,12 +26,16 @@ const GROUPS: { label: string; kinds: ContextKind[] }[] = [
   { label: "PROJECT", kinds: ["project", "local"] },
   { label: "MEMORY", kinds: ["memory"] },
   { label: "UNATTRIBUTED", kinds: ["unknown"] },
-  { label: "SKILLS", kinds: ["skill"] },
 ]
 
 /** Instruction nodes of the latest observed context, in load order. */
 export function currentInstructions(graph: ContextGraph): ContextNode[] {
-  return graph.current.map((id) => graph.nodes[id]).filter((n): n is ContextNode => n !== undefined)
+  return pick(graph, graph.current)
+}
+
+/** Nested instruction files the engine attached in this context. */
+export function nestedInstructions(graph: ContextGraph): ContextNode[] {
+  return pick(graph, graph.nested)
 }
 
 /** Tokens of the current always-on instructions: engine estimate when present, else local. */
@@ -37,39 +43,49 @@ export function instructionTokens(graph: ContextGraph): number {
   return currentInstructions(graph).reduce((sum, n) => sum + tokensOf(n), 0)
 }
 
+export function nestedTokens(graph: ContextGraph): number {
+  return nestedInstructions(graph).reduce((sum, n) => sum + tokensOf(n), 0)
+}
+
 export function tokensOf(n: ContextNode): number {
   return n.engineTokens ?? n.estimatedTokens ?? 0
 }
 
 /**
- * The architecture as /context-lab tree draws it: observed instructions of the
- * latest context grouped by tier with imports nested under their parent, then
- * dynamic and non-observed nodes in their own groups. Evidence is per node.
+ * The architecture as /context-lab tree draws it: the latest context's
+ * always-on files grouped by tier, imports nested under their parent; then
+ * nested files attached on read, skills, and the inferred and available ones,
+ * each marked with its evidence in this context.
  */
 export function contextTree(graph: ContextGraph): TreeGroup[] {
   const live = currentInstructions(graph)
-  const liveIds = new Set(live.map((n) => n.id))
-  const skills = Object.values(graph.nodes).filter((n) => n.kind === "skill")
-  const others = Object.values(graph.nodes).filter(
-    (n) => n.kind !== "skill" && !liveIds.has(n.id) && n.evidence !== "observed",
-  )
-
   const groups: TreeGroup[] = []
   for (const { label, kinds } of GROUPS) {
-    const members = (kinds.includes("skill") ? skills : live).filter((n) => kinds.includes(n.kind))
-    if (members.length === 0) continue
-    groups.push({ label, evidence: groupEvidence(members), items: nest(members) })
+    const members = live.filter((n) => kinds.includes(n.kind))
+    if (members.length) groups.push(group(label, members, "observed"))
   }
-  const inferred = others.filter((n) => n.evidence === "inferred")
-  if (inferred.length) groups.push({ label: "POSSIBLE NESTED", evidence: "inferred", items: nest(inferred) })
-  const available = others.filter((n) => n.evidence === "available")
-  if (available.length) groups.push({ label: "AVAILABLE", evidence: "available", items: nest(available) })
+  const nested = nestedInstructions(graph)
+  if (nested.length) groups.push(group("NESTED (attached on read)", nested, "observed"))
+  const skills = Object.values(graph.nodes).filter((n) => n.kind === "skill")
+  if (skills.length) groups.push(group("SKILLS", skills, "observed"))
+  const inferred = pick(graph, graph.inferred)
+  if (inferred.length) groups.push(group("POSSIBLE NESTED", inferred, "inferred"))
+  const available = pick(graph, graph.available)
+  if (available.length) groups.push(group("AVAILABLE", available, "available"))
   return groups
 }
 
-function nest(nodes: ContextNode[]): TreeItem[] {
+function group(label: string, nodes: ContextNode[], evidence: EvidenceLevel): TreeGroup {
+  return { label, evidence, items: nest(nodes, evidence) }
+}
+
+function pick(graph: ContextGraph, ids: readonly string[]): ContextNode[] {
+  return ids.map((id) => graph.nodes[id]).filter((n): n is ContextNode => n !== undefined)
+}
+
+function nest(nodes: ContextNode[], evidence: EvidenceLevel): TreeItem[] {
   const ids = new Set(nodes.map((n) => n.id))
-  const items = new Map(nodes.map((n) => [n.id, { node: n, children: [] as TreeItem[] }]))
+  const items = new Map(nodes.map((n) => [n.id, { node: n, evidence, children: [] as TreeItem[] }]))
   const roots: TreeItem[] = []
   for (const n of nodes) {
     const item = items.get(n.id)!
@@ -78,12 +94,6 @@ function nest(nodes: ContextNode[]): TreeItem[] {
     else roots.push(item)
   }
   return roots
-}
-
-function groupEvidence(nodes: ContextNode[]): EvidenceLevel {
-  if (nodes.some((n) => n.evidence === "observed")) return "observed"
-  if (nodes.some((n) => n.evidence === "inferred")) return "inferred"
-  return "available"
 }
 
 /**

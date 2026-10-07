@@ -11,7 +11,8 @@ The full V1 specification is [SPEC.md](SPEC.md). Design decisions: [DECISIONS.md
 | Phase | | |
 | --- | --- | --- |
 | 1 Skeleton (`/context-lab`, doctor, tests) | done | |
-| 2 Context observer (`prompt.context` → graph, tree) | done | nested files (2b) pending |
+| 2 Context observer (`prompt.context` → graph, tree) | done | |
+| 2b Nested files (attached ● / inferred ◐ / available ○) | done | verified live on 2.1.291 |
 | 3 Usage (`session.measure`, engine per-file estimates) | done | skills/agents pending |
 | 4 Analyzers | todo | `/context-lab issues` says so instead of reporting nothing |
 | 5 Pane UI · 6 Reports · 7 Eval · 8 Dogfood | todo | |
@@ -51,8 +52,12 @@ npm run typecheck:plugin     # hooks module against the engine's generated types
 - If another plugin rewrites the `claudeMd` text, the engine stops reporting the files
   behind it; Context Lab then shows one "rewritten, files unknown" node and does not guess.
 - Doctor can only prove an event works by having seen it fire this session.
-- Nested `CLAUDE.md` delivery is observable through `prompt.attachment` (`nested_memory`)
-  but its text format is not a typed API; until Phase 2b lands nested files are not shown.
+- Nested `CLAUDE.md` delivery is observed through `prompt.attachment` (`nested_memory`),
+  attributed by parsing its `Contents of <path>:` headers — not a typed API. If a build
+  changes that text, `doctor` shows the attachments as unattributed instead of guessing.
+- Subagents' nested attachments are not counted yet (main conversation only).
+- In `claude -p`, a command registered by a Mod is not resolved for the initial prompt:
+  try `/context-lab` in an interactive session.
 
 ## Privacy
 

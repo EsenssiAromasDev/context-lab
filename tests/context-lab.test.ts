@@ -12,9 +12,48 @@ interface World {
   store: Map<string, unknown>
   logs: string[]
   setUsage: (u: unknown) => void
+  /** How many times the plugin asked for the engine's nested walk. */
+  walks: () => number
 }
 
-function world(on: On, opts: { failUsage?: boolean } = {}): World {
+interface WorldOptions {
+  failUsage?: boolean
+  /** The project's files, relative to ROOT. */
+  disk?: Record<string, string>
+}
+
+/** The engine hands $.fs native paths (C:\work\proj\... on Windows). */
+const key = (path: string) => path.replace(/\\/g, "/").replace(/^[A-Za-z]:/, "")
+
+/** The engine's nested walk over `disk`: directories strictly inside ROOT down to `of`'s. */
+function ancestorsOf(disk: Record<string, string>, of: string, names: readonly string[]) {
+  const rel = of.slice(ROOT.length + 1).split("/").slice(0, -1)
+  const out = []
+  for (let i = 1; i <= rel.length; i++) {
+    const dir = rel.slice(0, i).join("/")
+    for (const name of names) {
+      const content = disk[`${dir}/${name}`]
+      if (content !== undefined) {
+        out.push({ dir: `${ROOT}/${dir}`, name, content, parts: [{ path: `${ROOT}/${dir}/${name}`, content }] })
+      }
+    }
+  }
+  return out
+}
+
+/** One directory of `disk`, as $.fs.list answers. */
+function listOf(disk: Record<string, string>, path: string) {
+  const prefix = path === ROOT ? "" : `${path.slice(ROOT.length + 1)}/`
+  const entries = new Map<string, { name: string; kind: "file" | "dir"; size: number; mtimeMs: number; isLink: boolean }>()
+  for (const [file, content] of Object.entries(disk)) {
+    if (!file.startsWith(prefix)) continue
+    const [head, ...rest] = file.slice(prefix.length).split("/")
+    entries.set(head!, { name: head!, kind: rest.length ? "dir" : "file", size: content.length, mtimeMs: 0, isLink: false })
+  }
+  return [...entries.values()]
+}
+
+function world(on: On, opts: WorldOptions = {}): World {
   const store = new Map<string, unknown>()
   const logs: string[] = []
   let usage: unknown = { startedAt: 100, context: { window: 200_000 }, rateLimits: [] }
@@ -36,6 +75,18 @@ function world(on: On, opts: { failUsage?: boolean } = {}): World {
     return { value: undefined }
   })
   on("fs.exists", () => ({ value: true }))
+  const disk = opts.disk ?? {}
+  let walks = 0
+  on("fs.ancestors", ($, e) => {
+    walks += 1
+    return { value: ancestorsOf(disk, key(e.of ?? ROOT), e.names) as never }
+  })
+  on("fs.list", ($, e) => ({ value: listOf(disk, key(e.path)) }))
+  // The engine's own: sends the text, unless a hook beneath dropped it (DROP).
+  on("prompt.attachment", ($, e) => ({ text: e.text.includes("DROP") ? null : e.text }))
+  on("tool.call", { tool: "Read" }, ($, e) => ({
+    result: { type: "text", file: { filePath: e.file_path, content: disk[e.file_path.slice(ROOT.length + 1)] ?? "" } } as never,
+  }))
   on("process.run", ($, e) => {
     const cmd = e.argv.slice(1).join(" ")
     const out = cmd === "--version" ? "git version 2.47.0\n" : cmd === "rev-parse HEAD" ? "abc123\n" : ""
@@ -45,7 +96,7 @@ function world(on: On, opts: { failUsage?: boolean } = {}): World {
   on("prompt.context", ($, e) => ({ blocks: e.blocks, ...(e.instructionFiles ? { instructionFiles: e.instructionFiles } : {}) }))
   on("session.measure", ($, e) => ({ changed: e.changed }))
   mock.clock(on, { now: 1_000 })
-  return { store, logs, setUsage: (u) => (usage = u) }
+  return { store, logs, setUsage: (u) => (usage = u), walks: () => walks }
 }
 
 const start = ($: Engine) => $.session.start({ cwd: ROOT, surface: null, isInteractive: false })
@@ -133,6 +184,7 @@ test("an observer failure never breaks the engine's answer", async ($, on) => {
   const input = { blocks: [{ name: "claudeMd", text: "t" }], instructionFiles: files }
   const out = await $.prompt.context(input)
   expect(out.instructionFiles).toEqual(files)
+  await run($, "doctor") // waits for the background observation
   expect(w.logs.some((l) => l.includes("context-lab prompt.context"))).toBe(true)
 })
 
@@ -143,4 +195,89 @@ test("unbuilt views say so and write nothing", async ($, on) => {
   expect(await run($, "report")).toContain("Nothing was written")
   expect(await run($, "nope")).toContain('Unknown view "nope"')
   expect(w.store.size).toBe(0)
+})
+
+// Phase 2b — nested instruction files (SPEC §12, the nested-project fixture).
+
+const NESTED_DISK = {
+  "CLAUDE.md": "# Nested project",
+  "src/api/CLAUDE.md": "# API rules\nEvery handler validates its input.",
+  "src/api/service.ts": "export function handler() {}",
+  "node_modules/pkg/CLAUDE.md": "never listed",
+}
+
+const rootContext = {
+  blocks: [],
+  instructionFiles: [{ path: `${ROOT}/CLAUDE.md`, kind: "project" as const, content: "# Nested project" }],
+}
+
+const attachment = (text: string, agentId?: string) => ({
+  type: "nested_memory",
+  text,
+  origin: { kind: "engine" as const },
+  ...(agentId === undefined ? {} : { agentId }),
+})
+
+test("nested: available before a Read, inferred after it, observed once attached", async ($, on) => {
+  const w = world(on, { disk: NESTED_DISK })
+  await start($)
+  await $.prompt.context(rootContext)
+
+  let tree = await run($, "tree")
+  expect(tree).toContain("○ AVAILABLE")
+  expect(tree).toContain("○ ./src/api/CLAUDE.md")
+  expect(tree.includes("node_modules")).toBe(false)
+
+  await $.tool.call({ tool: "Read", file_path: `${ROOT}/src/api/service.ts` })
+  tree = await run($, "tree")
+  expect(tree).toContain("◐ POSSIBLE NESTED")
+  expect(tree).toContain("◐ ./src/api/CLAUDE.md")
+  expect(tree).toContain("← src/api/service.ts")
+  expect(tree.includes("○ ./src/api/CLAUDE.md")).toBe(false)
+
+  const text = `Contents of ${ROOT}/src/api/CLAUDE.md (project instructions):
+
+${NESTED_DISK["src/api/CLAUDE.md"]}`
+  const sent = await $.prompt.attachment(attachment(text))
+  expect(sent.text).toBe(text)
+  tree = await run($, "tree")
+  expect(tree).toContain("● NESTED (attached on read)")
+  expect(tree).toContain("● ./src/api/CLAUDE.md")
+  expect(tree.includes("◐ ./src/api/CLAUDE.md")).toBe(false)
+
+  const doctor = await run($, "doctor")
+  expect(doctor).toMatch(/nested_memory attribution\s+✓ 1 file\(s\) from 1/)
+  expect(w.logs).toEqual([])
+})
+
+test("nested: a subagent's attachment and one a hook dropped are not observed", async ($, on) => {
+  world(on, { disk: NESTED_DISK })
+  await start($)
+  await $.prompt.context(rootContext)
+  await $.prompt.attachment(attachment(`Contents of ${ROOT}/src/api/CLAUDE.md:
+x`, "agent-1"))
+  await $.prompt.attachment(attachment(`Contents of ${ROOT}/src/api/CLAUDE.md:
+DROP`))
+  const tree = await run($, "tree")
+  expect(tree.includes("NESTED (attached on read)")).toBe(false)
+  expect(tree).toContain("○ ./src/api/CLAUDE.md")
+})
+
+test("nested: an unattributable attachment is reported by doctor, not guessed", async ($, on) => {
+  world(on, { disk: NESTED_DISK })
+  await start($)
+  await $.prompt.context(rootContext)
+  await $.prompt.attachment(attachment("API rules, in a format this build invented"))
+  expect(await run($, "doctor")).toMatch(/nested_memory attribution\s+✗ 1\/1 unattributed/)
+  expect((await run($, "tree")).includes("NESTED (attached on read)")).toBe(false)
+})
+
+test("nested: the walk runs once per directory per context, and never outside the project", async ($, on) => {
+  const w = world(on, { disk: NESTED_DISK })
+  await start($)
+  await $.prompt.context(rootContext)
+  await $.tool.call({ tool: "Read", file_path: `${ROOT}/src/api/service.ts` })
+  await $.tool.call({ tool: "Read", file_path: `${ROOT}/src/api/CLAUDE.md` })
+  await $.tool.call({ tool: "Read", file_path: "/etc/hosts" })
+  expect(w.walks()).toBe(1)
 })

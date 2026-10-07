@@ -6,6 +6,8 @@ import {
   currentInstructions,
   displayPath,
   instructionTokens,
+  nestedInstructions,
+  nestedTokens,
   tokensOf,
   type TreeItem,
 } from "../graph/graph-selectors.ts"
@@ -62,6 +64,16 @@ export function renderOverview({ graph, usage, root }: ViewInput): string {
     if (files.length === 0) lines.push("  (no instruction files in the latest context)")
   }
 
+  const nested = nestedInstructions(graph)
+  if (nested.length) {
+    lines.push("", row("Nested (attached on read)", approx(nestedTokens(graph))))
+    for (const n of nested) lines.push(row(`${MARK.observed} ${displayPath(n.path, root)}`, approx(tokensOf(n)), 2))
+  }
+  if (graph.inferred.length) {
+    const s = graph.inferred.length === 1 ? "" : "s"
+    lines.push(`${MARK.inferred} ${graph.inferred.length} nested file${s} inferred (found after a Read, delivery not seen)`)
+  }
+
   if (usage?.categories?.length) {
     lines.push("", "Runtime (engine estimate)")
     for (const c of usage.categories) lines.push(row(c.name, approx(c.tokens), 2))
@@ -100,7 +112,9 @@ function drawItems(items: TreeItem[], pad: string, root: string | undefined, out
     const n = item.node
     const label = n.kind === "skill" || n.kind === "unknown" ? n.name : displayPath(n.path, root)
     const size = approx(tokensOf(n))
-    out.push(`${pad}${last ? "└─" : "├─"} ${MARK[n.evidence]} ${label}  ${size}  ×${n.loadCount}`)
+    const loads = item.evidence === "observed" ? `  ×${n.loadCount}` : ""
+    const from = typeof n.metadata.inferredFrom === "string" && item.evidence === "inferred" ? `  ← ${n.metadata.inferredFrom}` : ""
+    out.push(`${pad}${last ? "└─" : "├─"} ${MARK[item.evidence]} ${label}  ${size}${loads}${from}`)
     drawItems(item.children, pad + (last ? "   " : "│  "), root, out)
   })
 }
@@ -116,7 +130,12 @@ export interface DoctorFacts {
   fs: boolean
 }
 
-export const WATCHED_EVENTS = ["prompt.context", "session.measure", "prompt.attachment", "skill.prompt", "agent.spawn"]
+export const WATCHED_EVENTS = ["prompt.context", "session.measure", "prompt.attachment", "tool.call", "skill.prompt", "agent.spawn"]
+
+/** Counters register.tsx keeps in `observed` for nested_memory attribution. */
+export const NESTED_SEEN = "nested_memory"
+export const NESTED_FILES = "nested_memory:files"
+export const NESTED_UNATTRIBUTED = "nested_memory:unattributed"
 
 export function renderDoctor(f: DoctorFacts): string {
   const ok = "✓"
@@ -129,6 +148,11 @@ export function renderDoctor(f: DoctorFacts): string {
     const n = f.observed[ev] ?? 0
     lines.push(row(ev, n > 0 ? `${ok} observed ×${n}` : "hooked, not yet observed"))
   }
+  const attachments = f.observed[NESTED_SEEN] ?? 0
+  const unattributed = f.observed[NESTED_UNATTRIBUTED] ?? 0
+  if (attachments === 0) lines.push(row("nested_memory attribution", "no nested attachment seen yet"))
+  else if (unattributed === 0) lines.push(row("nested_memory attribution", `${ok} ${f.observed[NESTED_FILES] ?? 0} file(s) from ${attachments}`))
+  else lines.push(row("nested_memory attribution", `${no} ${unattributed}/${attachments} unattributed (text format changed?)`))
   lines.push("")
   lines.push(row("Git", f.git.available ? `${ok} ${f.git.version ?? ""}`.trim() : `${no} not found`))
   if (!f.repo.isRepo) lines.push(row("Repository", "not a git repository"))
